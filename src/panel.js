@@ -30,13 +30,25 @@ const { VIEW_TYPE, SETUP_PAGES, VENDOR_NEEDS, VENDOR_MATCH, OPTIONAL_PAGES, BEFO
 const { currentLanguage, languageSetting, setLanguage } = require("./language");
 const { createFile, createStarter } = require("./files");
 
+/**
+ * The tutorial panel beside the code. One at a time.
+ * @example
+ * const panel = new TutorialPanel(context, docs, done, project, { setDone, insert, revealInTree });
+ * panel.show("yams/tutorials/arm/motor-controller");
+ */
 class TutorialPanel {
   /**
-   * @param {vscode.ExtensionContext} context
-   * @param {import("./docs").Docs} docs the tutorials
-   * @param {Set<string>} done the ids of the pages marked done
-   * @param {import("./project").Project} project the open robot project
-   * @param {{ setDone: (id: string, value: boolean) => void, insert: (code: string, lang: string) => Promise<void>, revealInTree: (id: string) => void }} actions
+   * @param {vscode.ExtensionContext} context the extension's context, for its folder and storage.
+   * @param {import("./docs").Docs} docs the tutorials.
+   * @param {Set<string>} done the ids of the pages marked done.
+   * @param {import("./project").Project} project the open robot project.
+   * @param {{ setDone: (id: string, value: boolean) => void, insert: (code: string, lang: string) => Promise<void>, revealInTree: (id: string) => void }} actions what the panel asks extension.js to do.
+   * @example
+   * const panel = new TutorialPanel(context, docs, done, project, {
+   *   setDone: (id, value) => (value ? done.add(id) : done.delete(id)),
+   *   insert: (code, lang) => insertCode(code, lang, lastEditor, panel.panel),
+   *   revealInTree: (id) => treeView.reveal(tree.findPage(id)),
+   * });
    */
   constructor(context, docs, done, project, actions) {
     this.context = context;
@@ -53,14 +65,21 @@ class TutorialPanel {
     this.currentId = undefined;
   }
 
-  /** The tutorials, as downloaded now. */
+  /**
+   * The tutorials, as downloaded now.
+   * @example
+   * panel.index.pages["yams/tutorials/arm"].title; // "Arm"
+   */
   get index() {
     return this.docs.index;
   }
 
   /**
-   * Show a page, opening the panel if it is not open.
-   * @param {string} id
+   * Show a page, opening the panel if it is not open. A new panel opens in its own editor group on the
+   * right, which is then locked so files open beside it.
+   * @param {string} id the page's id.
+   * @example
+   * panel.show("yams/tutorials/arm/motor-controller");
    */
   show(id) {
     if (!this.index.pages[id]) return;
@@ -84,9 +103,16 @@ class TutorialPanel {
   }
 
   /**
-   * Take over a new panel, or one VS Code restored after a reload.
-   * @param {vscode.WebviewPanel} panel
-   * @param {string | undefined} id the page to show
+   * Take over a new panel, or one VS Code restored after a reload: set its HTML and listen to its
+   * buttons. A panel already open is closed, so there is only ever one.
+   * @param {vscode.WebviewPanel} panel the webview panel.
+   * @param {string | undefined} id the page to show once the page's script is ready.
+   * @example
+   * vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
+   *   async deserializeWebviewPanel(webviewPanel, state) {
+   *     panel.adopt(webviewPanel, state?.pageId);
+   *   },
+   * });
    */
   adopt(panel, id) {
     // One tutorial at a time: a second one, such as one more restored after a reload, replaces it.
@@ -114,9 +140,12 @@ class TutorialPanel {
   }
 
   /**
-   * Render a page and send it to the panel.
-   * @param {string} id
-   * @param {string} [anchor] the heading to scroll to
+   * Render a page and send it to the panel, with Previous/Next, its done state, the code language and
+   * the setup card.
+   * @param {string} id the page's id.
+   * @param {string} [anchor] the heading to scroll to, such as "the-complete-file".
+   * @example
+   * panel.load("yams/tutorials/arm/motor-controller", "the-complete-file");
    */
   load(id, anchor) {
     if (!this.panel || !this.index.pages[id]) return;
@@ -149,18 +178,34 @@ class TutorialPanel {
   }
 
   /**
-   * The card at the top of a page about what the open project still needs, or null when it has it.
-   * @param {string} id
+   * The card at the top of a page about what the robot project still needs: a project at all, YAMS or
+   * YAGSL, or the vendor library its tutorial needs. On a setup page, the install card, or a ready card
+   * once the project has it.
+   * @param {string} id the page's id.
+   * @returns the card for media/tutorial.js to draw ({ state, title, body, actions, note }), or null for none.
+   * @example
+   * panel.card("yams/tutorials/arm/motor-controller");
+   * // { state: "todo", title: "MyRobot needs REVLib", body: "...", actions: [{ label: "Open vendor libraries", ... }], note: "..." }
    */
   card(id) {
     const s = this.project.status;
     const page = this.index.pages[id];
     const describe = this.project.describe();
+    /**
+     * The button that installs YAMS or YAGSL for the project's command framework.
+     * @example
+     * install("yams"); // { label: "Install YAMS for Commands v2", command: "yassTutorials.installYams" }
+     */
     const install = (/** @type {"yams" | "yagsl"} */ key) => ({
       label: `Install ${LIBRARIES[key].label} for Commands v${s.framework}`,
       command: key === "yams" ? "yassTutorials.installYams" : "yassTutorials.installYagsl",
     });
     const vendorLibs = { label: "Open vendor libraries", command: "yassTutorials.manageVendorLibs", secondary: true };
+    /**
+     * Whether the project lacks YAMS or YAGSL, or has it for the wrong command framework.
+     * @example
+     * if (missing("yams")) actions.push(install("yams"));
+     */
     const missing = (/** @type {"yams" | "yagsl"} */ key) => !s[key].installed || s[key].wrongFramework;
 
     const setupKey = /** @type {"yams" | "yagsl" | undefined} */ (SETUP_PAGES[id]);
@@ -232,21 +277,36 @@ class TutorialPanel {
     };
   }
 
-  /** Redraw the card after the project changes. */
+  /**
+   * Redraw the open page's card, such as after the project's vendordeps change.
+   * @example
+   * project.onDidChange(() => panel.refreshSetup());
+   */
   refreshSetup() {
     if (this.panel && this.currentId) {
       this.panel.webview.postMessage({ type: "setup", setup: this.card(this.currentId) });
     }
   }
 
-  /** Update the Done button after a page is marked done or not. */
+  /**
+   * Update the open page's Done button after a page is marked done or not.
+   * @example
+   * done.add(panel.currentId);
+   * panel.refreshDone();
+   */
   refreshDone() {
     if (this.panel && this.currentId) {
       this.panel.webview.postMessage({ type: "done", done: this.done.has(this.currentId) });
     }
   }
 
-  /** Switch the code tabs after the language changes. */
+  /**
+   * Switch the open page's code tabs after the language setting or the project changes.
+   * @example
+   * vscode.workspace.onDidChangeConfiguration((e) => {
+   *   if (e.affectsConfiguration("yassTutorials.language")) panel.refreshLanguage();
+   * });
+   */
   refreshLanguage() {
     if (this.panel) {
       this.panel.webview.postMessage({
@@ -259,8 +319,12 @@ class TutorialPanel {
   }
 
   /**
-   * What the page's buttons send. CONTRIBUTING.md lists every message.
-   * @param {any} msg
+   * Act on what the page's buttons send. CONTRIBUTING.md lists every message.
+   * @param {any} msg the message, such as { type: "open", id: "yams/tutorials/arm" }.
+   * @example
+   * // media/tutorial.js sends:
+   * vscode.postMessage({ type: "insert", code: "int a = 1;", lang: "java" });
+   * // and this puts that code at the cursor.
    */
   async onMessage(msg) {
     switch (msg.type) {
@@ -300,11 +364,20 @@ class TutorialPanel {
   }
 
   /**
-   * The panel's HTML. It stays the same; each page arrives as a "show" message.
-   * @param {vscode.Webview} webview
+   * The panel's HTML: the top bar, an empty page and the Previous/Done/Next buttons. It stays the same;
+   * each page arrives as a "show" message.
+   * @param {vscode.Webview} webview the panel's webview, for its resource addresses.
+   * @returns {string}
+   * @example
+   * panel.webview.html = this.shell(panel.webview);
    */
   shell(webview) {
     const nonce = crypto.randomBytes(16).toString("base64");
+    /**
+     * The webview's address for a file in media/.
+     * @example
+     * media("tutorial.css"); // "https://file+.vscode-resource.vscode-cdn.net/.../media/tutorial.css"
+     */
     const media = (/** @type {string} */ f) => webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "media", f));
     const csp = [
       "default-src 'none'",

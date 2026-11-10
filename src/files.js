@@ -24,7 +24,10 @@ const path = require("path");
 
 /**
  * The editor group code opens in: any group but the tutorial's, or a new one beside it.
- * @param {vscode.WebviewPanel | undefined} tutorial the tutorial panel, if one is open
+ * @param {vscode.WebviewPanel | undefined} tutorial the tutorial panel, if one is open.
+ * @returns {vscode.ViewColumn}
+ * @example
+ * await vscode.window.showTextDocument(uri, { viewColumn: codeColumn(panel.panel) });
  */
 function codeColumn(tutorial) {
   const other = vscode.window.tabGroups.all.find((g) => g.viewColumn !== tutorial?.viewColumn);
@@ -32,11 +35,16 @@ function codeColumn(tutorial) {
 }
 
 /**
- * Put code at the cursor of the editor the student last worked in, or in a new file when there is none.
- * @param {string} code
- * @param {string} lang the code block's language
- * @param {vscode.TextEditor | undefined} lastEditor
- * @param {vscode.WebviewPanel | undefined} tutorial
+ * Insert: put code at the cursor of the editor the student last worked in, shifted to that line's
+ * indentation, or in a new file when there is no editor.
+ * @param {string} code the code block's text.
+ * @param {string} lang the code block's language, such as "java", for a new file.
+ * @param {vscode.TextEditor | undefined} lastEditor the editor to put it in.
+ * @param {vscode.WebviewPanel | undefined} tutorial the tutorial panel, so a new file opens beside it.
+ * @example
+ * // With the cursor indented 2 spaces inside a class:
+ * await insertCode("int a = 1;\nint b = 2;\n", "java", lastEditor, panel.panel);
+ * // adds "int a = 1;" and "  int b = 2;" at the cursor
  */
 async function insertCode(code, lang, lastEditor, tutorial) {
   let editor = lastEditor && !lastEditor.document.isClosed ? lastEditor : undefined;
@@ -58,11 +66,17 @@ async function insertCode(code, lang, lastEditor, tutorial) {
 }
 
 /**
- * Where a complete file from a tutorial goes in the project: Java files by their package, C++ files
- * by their path under src/main. Null for a part of a file.
- * @param {string} root the project's folder
- * @param {string} title the code block's title, such as subsystems/ArmSubsystem.java
- * @param {string} code
+ * Where a complete file from a tutorial goes in the project: Java by its package line, C++ by its
+ * path under src/main.
+ * @param {string} root the project's folder.
+ * @param {string} title the code block's title, such as "subsystems/ArmSubsystem.java".
+ * @param {string} code the file's code.
+ * @returns {string | null} the file's path, or null when the code is only part of a file.
+ * @example
+ * filePathFor("C:/Robots/MyRobot", "subsystems/ArmSubsystem.java", "package first.robot.subsystems;\n...");
+ * // "C:/Robots/MyRobot/src/main/java/first/robot/subsystems/ArmSubsystem.java"
+ * filePathFor("C:/Robots/MyRobot", "cpp/subsystems/ArmSubsystem.cpp", "#include ...");
+ * // "C:/Robots/MyRobot/src/main/cpp/subsystems/ArmSubsystem.cpp"
  */
 function filePathFor(root, title, code) {
   const name = path.posix.basename(title);
@@ -78,12 +92,15 @@ function filePathFor(root, title, code) {
 }
 
 /**
- * Create file: write a complete file from a tutorial into the project, and open it. Asks before
- * replacing a file that already has code in it.
- * @param {import("./project").Project} project
- * @param {string} code
- * @param {string} title
- * @param {vscode.WebviewPanel | undefined} tutorial
+ * Create file: write a complete file from a tutorial into the project, and open it beside the
+ * tutorial. Asks before replacing a file that already has code in it.
+ * @param {import("./project").Project} project the open robot project.
+ * @param {string} code the file's code.
+ * @param {string} title the code block's title, such as "subsystems/ArmSubsystem.java".
+ * @param {vscode.WebviewPanel | undefined} tutorial the tutorial panel, so the file opens beside it.
+ * @example
+ * await createFile(project, "package first.robot;\n\npublic class RobotContainer {\n}\n", "RobotContainer.java", panel.panel);
+ * // writes src/main/java/first/robot/RobotContainer.java
  */
 async function createFile(project, code, title, tutorial) {
   const s = project.status;
@@ -110,8 +127,11 @@ async function createFile(project, code, title, tutorial) {
 }
 
 /**
- * The robot code's own folder: where the template's Robot.java is, such as src/main/java/first/robot.
- * @param {string} root the project's folder
+ * The robot code's own folder: where the template's Robot.java is.
+ * @param {string} root the project's folder.
+ * @returns {string} that folder, or src/main/java/first/robot when there is no Robot.java.
+ * @example
+ * robotPackageDir("C:/Robots/MyRobot"); // "C:/Robots/MyRobot/src/main/java/first/robot"
  */
 function robotPackageDir(root) {
   const javaRoot = path.join(root, "src", "main", "java");
@@ -131,11 +151,19 @@ function robotPackageDir(root) {
 }
 
 /**
- * Where "Create ArmSubsystem.java in the subsystems folder" puts the file.
- * @param {string} root the project's folder
- * @param {string} name such as ArmSubsystem.java
- * @param {string} folder such as subsystems, or src/main/include/subsystems for C++
- * @param {string} code the file's start, whose package line wins for Java
+ * Where "Create ArmSubsystem.java in the subsystems folder" puts the file. A Java file's package
+ * line wins; without one it goes in that folder next to Robot.java. C++ goes to the path given, or
+ * to src/main/include (headers) or src/main/cpp.
+ * @param {string} root the project's folder.
+ * @param {string} name the file, such as "ArmSubsystem.java".
+ * @param {string} folder the folder the step names, such as "subsystems" or "src/main/include/subsystems".
+ * @param {string} code the file's start.
+ * @returns {string} the file's path.
+ * @example
+ * starterPathFor("C:/Robots/MyRobot", "ArmSubsystem.java", "subsystems", "package first.robot.subsystems;\n...");
+ * // "C:/Robots/MyRobot/src/main/java/first/robot/subsystems/ArmSubsystem.java"
+ * starterPathFor("C:/Robots/MyRobot", "ArmSubsystem.hpp", "src/main/include/subsystems", "#pragma once\n");
+ * // "C:/Robots/MyRobot/src/main/include/subsystems/ArmSubsystem.hpp"
  */
 function starterPathFor(root, name, folder, code) {
   if (/^src[\\/]/.test(folder)) return path.join(root, ...folder.split(/[\\/]/), name);
@@ -149,13 +177,17 @@ function starterPathFor(root, name, folder, code) {
 }
 
 /**
- * The Create button: create the file a step asks for, with its start, and open it. A file that is
- * already there is only opened.
- * @param {import("./project").Project} project
- * @param {string} name
- * @param {string} folder
- * @param {string} code the file's start, from the page (see starterCode in media/tutorial.js)
- * @param {vscode.WebviewPanel | undefined} tutorial
+ * The Create button under "Create ArmSubsystem.java in the subsystems folder": create the file with
+ * its start, and open it beside the tutorial. A file that is already there is only opened.
+ * @param {import("./project").Project} project the open robot project.
+ * @param {string} name the file, such as "ArmSubsystem.java".
+ * @param {string} folder the folder the step names, such as "subsystems".
+ * @param {string} code the file's start, from starterCode() in media/tutorial.js.
+ * @param {vscode.WebviewPanel | undefined} tutorial the tutorial panel, so the file opens beside it.
+ * @example
+ * await createStarter(project, "ArmSubsystem.java", "subsystems",
+ *   "package first.robot.subsystems;\n\nimport org.wpilib.command2.SubsystemBase;\n\npublic class ArmSubsystem extends SubsystemBase {\n}\n",
+ *   panel.panel);
  */
 async function createStarter(project, name, folder, code, tutorial) {
   const s = project.status;

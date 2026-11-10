@@ -20,6 +20,11 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const { SOURCES, buildSource, renderPage } = require("../src/render.js");
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/**
+ * A command line option's value.
+ * @example
+ * arg("--yams", "../YAMS-Gitbook"); // "C:/docs/YAMS" when run with --yams C:/docs/YAMS
+ */
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : fallback;
@@ -30,6 +35,11 @@ const repos = {
 };
 
 let problems = 0;
+/**
+ * Report a problem; the script fails at the end if there are any.
+ * @example
+ * problem("yams/tutorials/arm: image .gitbook/assets/arm.gif is missing");
+ */
 const problem = (message) => {
   problems++;
   console.error(`  ${message}`);
@@ -37,6 +47,11 @@ const problem = (message) => {
 
 for (const source of SOURCES) {
   const repo = repos[source.id];
+  /**
+   * A file of the docs repo, or null when it is missing.
+   * @example
+   * const summary = read("SUMMARY.md");
+   */
   const read = (file) => {
     try {
       return fs.readFileSync(path.join(repo, file), "utf8");

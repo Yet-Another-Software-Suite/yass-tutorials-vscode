@@ -45,9 +45,13 @@ const PARALLEL = 6;
  */
 
 /**
- * Fetch with a timeout and GitHub's preferred headers.
+ * Download from GitHub, giving up after 20 seconds. Throws when GitHub answers with an error.
  * @param {string} url
- * @param {Record<string, string>} [headers]
+ * @param {Record<string, string>} [headers] such as { Accept: "application/vnd.github.sha" }.
+ * @returns {Promise<Response>}
+ * @example
+ * const commit = await (await get("https://api.github.com/repos/Yet-Another-Software-Suite/YAMS-Gitbook/commits/main",
+ *   { Accept: "application/vnd.github.sha" })).text();
  */
 async function get(url, headers = {}) {
   const controller = new AbortController();
@@ -65,22 +69,48 @@ async function get(url, headers = {}) {
 }
 
 /**
- * Run the jobs a few at a time.
+ * Run the jobs a few at a time (PARALLEL), so a library's pages download quickly without flooding
+ * the network.
  * @param {(() => Promise<void>)[]} jobs
+ * @example
+ * await inParallel(files.map((file) => () => download(file)));
  */
 async function inParallel(jobs) {
   let next = 0;
+  /**
+   * Take the next job until none are left.
+   * @example
+   * await Promise.all([worker(), worker()]);
+   */
   const worker = async () => {
     while (next < jobs.length) await jobs[next++]();
   };
   await Promise.all(Array.from({ length: Math.min(PARALLEL, jobs.length) }, worker));
 }
 
+/**
+ * The address of a file in a docs repo at a commit or branch, on raw.githubusercontent.com.
+ * @example
+ * rawUrl(source, "main", ".gitbook/assets/arm.gif");
+ * // "https://raw.githubusercontent.com/Yet-Another-Software-Suite/YAMS-Gitbook/main/.gitbook/assets/arm.gif"
+ */
 const rawUrl = (/** @type {Source} */ source, /** @type {string} */ ref, /** @type {string} */ file) =>
   `https://raw.githubusercontent.com/${source.github}/${ref}/${file.split("/").map(encodeURIComponent).join("/")}`;
 
+/**
+ * The YAMS and YAGSL docs, on disk and kept up to date.
+ * @example
+ * const docs = new Docs(context.globalStorageUri);
+ * docs.load(); // the tutorials on disk, at once
+ * docs.onDidChange(() => tree.setIndex(docs.index));
+ * await docs.sync(); // anything new from GitHub
+ */
 class Docs {
-  /** @param {vscode.Uri} storage */
+  /**
+   * @param {vscode.Uri} storage the extension's storage folder; the docs go in its docs folder.
+   * @example
+   * const docs = new Docs(context.globalStorageUri);
+   */
   constructor(storage) {
     this.root = path.join(storage.fsPath, "docs");
     /** @type {Index} */
@@ -98,12 +128,24 @@ class Docs {
     this.downloading = new Set();
   }
 
-  /** @param {Source} source */
+  /**
+   * A library's folder on disk.
+   * @param {Source} source
+   * @example
+   * this.dir(SOURCES[0]); // ".../globalStorage/yass-robotics.yass-tutorials/docs/yams"
+   */
   dir(source) {
     return path.join(this.root, source.id);
   }
 
-  /** @param {Source} source */
+  /**
+   * A library's state.json: the commit on disk, when it was last checked, and every file's hash.
+   * Empty when nothing is downloaded yet.
+   * @param {Source} source
+   * @returns {SourceState}
+   * @example
+   * this.readState(source).commit; // "eb77fea..."
+   */
   readState(source) {
     try {
       return /** @type {SourceState} */ (JSON.parse(fs.readFileSync(path.join(this.dir(source), "state.json"), "utf8")));
@@ -113,8 +155,11 @@ class Docs {
   }
 
   /**
+   * Save a library's state.json.
    * @param {Source} source
    * @param {SourceState} state
+   * @example
+   * this.writeState(source, { ...state, checked: Date.now() });
    */
   writeState(source, state) {
     fs.mkdirSync(this.dir(source), { recursive: true });
@@ -123,9 +168,12 @@ class Docs {
   }
 
   /**
-   * A file of the docs as it is now on disk, or null.
+   * A file of a library's docs as it is on disk.
    * @param {Source} source
-   * @param {string} file
+   * @param {string} file the file's path in the repo, such as "SUMMARY.md".
+   * @returns {string | null} its text, or null when it is not on disk.
+   * @example
+   * const summary = this.readText(source, "SUMMARY.md");
    */
   readText(source, file) {
     try {
@@ -135,19 +183,33 @@ class Docs {
     }
   }
 
-  /** Whether any tutorials are downloaded. */
+  /**
+   * Whether any tutorials are on disk to show.
+   * @example
+   * if (!docs.ready) setDocsState("loading");
+   */
   get ready() {
     return this.index.sources.length > 0;
   }
 
-  /** Which docs commit each library is at, such as "YAMS abc1234". */
+  /**
+   * Which docs commit each library is at.
+   * @returns {string}
+   * @example
+   * docs.describe(); // "YAMS eb77fea, YAGSL 0330556"
+   */
   describe() {
     return SOURCES.filter((s) => this.state.get(s.id)?.commit)
       .map((s) => `${s.name} ${this.state.get(s.id)?.commit.slice(0, 7)}`)
       .join(", ");
   }
 
-  /** Build the tutorial tree from what is on disk. */
+  /**
+   * Build the tutorial tree from what is on disk, into index. Doesn't download anything.
+   * @example
+   * docs.load();
+   * docs.index.pages["yams/tutorials/arm"].title; // "Arm"
+   */
   load() {
     /** @type {Index} */
     const index = { sources: [], pages: {} };
@@ -169,8 +231,13 @@ class Docs {
   }
 
   /**
-   * Download what changed since the last check. Runs once at a time; failures keep the docs on disk.
-   * @param {{ force?: boolean }} [options] force checks even when the last check was recent
+   * Download what changed since the last check, then load() and fire onDidChange if anything did.
+   * Only one runs at a time; calling it while one runs returns that one. Failures keep the docs on disk.
+   * @param {{ force?: boolean }} [options] force checks every library now, even ones checked in the last 12 hours.
+   * @returns {Promise<{ changed: boolean, failed: string[] }>}
+   * @example
+   * const { changed, failed } = await docs.sync({ force: true });
+   * if (failed.length) console.log(`Couldn't update ${failed.join(" and ")}`);
    */
   sync(options = {}) {
     if (!this.syncing) {
@@ -179,7 +246,13 @@ class Docs {
     return this.syncing;
   }
 
-  /** @param {{ force?: boolean }} options */
+  /**
+   * The work of sync(): check each library that is due.
+   * @param {{ force?: boolean }} options
+   * @example
+   * // Use sync() instead, so two checks never run at once.
+   * await this.doSync({ force: true });
+   */
   async doSync({ force = false }) {
     let changed = false;
     /** @type {string[]} */
@@ -202,9 +275,14 @@ class Docs {
   }
 
   /**
+   * Update one library: ask GitHub for the branch's commit, and if it is new, download the file list
+   * and every shown page whose hash changed. Falls back to syncFromBranch() when GitHub's API refuses
+   * and nothing is on disk yet.
    * @param {Source} source
-   * @param {SourceState} state
-   * @returns {Promise<boolean>} whether anything changed
+   * @param {SourceState} state the library's state on disk.
+   * @returns {Promise<boolean>} whether anything changed.
+   * @example
+   * const changed = await this.syncSource(source, this.readState(source));
    */
   async syncSource(source, state) {
     const api = `https://api.github.com/repos/${source.github}`;
@@ -229,6 +307,11 @@ class Docs {
 
     const dir = this.dir(source);
     const have = { ...state.have };
+    /**
+     * Download one file of the docs at the commit, unless the one on disk has the same hash.
+     * @example
+     * await download("tutorials/arm/motor-controller.md");
+     */
     const download = async (/** @type {string} */ file) => {
       if (!tree[file] || have[file] === tree[file]) return;
       const body = Buffer.from(await (await get(rawUrl(source, commit, file))).arrayBuffer());
@@ -255,12 +338,21 @@ class Docs {
   }
 
   /**
-   * Download the pages from the branch without the API's file list. Images then load from GitHub, and
-   * the next check, with the API, makes everything incremental again.
+   * Download the pages straight from the branch, without GitHub's API. Used when the API refuses and
+   * nothing is on disk yet. Images then load from GitHub, and the next check, with the API, makes
+   * updates incremental again.
    * @param {Source} source
+   * @returns {Promise<boolean>} true, since the pages were downloaded.
+   * @example
+   * await this.syncFromBranch(source);
    */
   async syncFromBranch(source) {
     const dir = this.dir(source);
+    /**
+     * Download one file of the docs from the branch.
+     * @example
+     * await save("SUMMARY.md");
+     */
     const save = async (/** @type {string} */ file) => {
       const body = Buffer.from(await (await get(rawUrl(source, source.branch, file))).arrayBuffer());
       fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
@@ -275,9 +367,14 @@ class Docs {
   }
 
   /**
-   * A page's HTML. Images on disk use their file; the others load from GitHub and are saved for next time.
-   * @param {string} id
-   * @param {(file: string) => string} localUrl the panel's address for a file on disk
+   * A page's HTML. Images on disk use their file; the others load from GitHub and are saved for next
+   * time (saveImage()).
+   * @param {string} id the page's id.
+   * @param {(file: string) => string} localUrl the panel's address for a file on disk.
+   * @returns {string | null} the HTML, or null when the page is not on disk.
+   * @example
+   * const html = docs.render("yams/tutorials/arm/motor-controller",
+   *   (file) => webview.asWebviewUri(vscode.Uri.file(file)).toString());
    */
   render(id, localUrl) {
     const page = this.index.pages[id];
@@ -300,10 +397,12 @@ class Docs {
   }
 
   /**
-   * Download an image in the background, so it shows offline next time.
+   * Download an image in the background, so it shows offline from then on. Each image downloads once.
    * @param {Source} source
-   * @param {string} file
-   * @param {string} sha
+   * @param {string} file the image's path in the repo, such as ".gitbook/assets/arm.gif".
+   * @param {string} sha its blob hash, recorded once it is saved.
+   * @example
+   * this.saveImage(source, ".gitbook/assets/arm.gif", state.tree[".gitbook/assets/arm.gif"]);
    */
   saveImage(source, file, sha) {
     const key = `${source.id}/${file}`;

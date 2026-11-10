@@ -91,15 +91,31 @@ const SOURCES = [
   },
 ];
 
+/**
+ * A heading or group title as GitBook writes it in addresses and heading ids.
+ * @example
+ * slugify("How-to: Mechanisms"); // "how-to-mechanisms"
+ * slugify("The complete file"); // "the-complete-file"
+ */
 const slugify = (/** @type {string} */ s) =>
   s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
+/**
+ * Text made safe to put in HTML.
+ * @example
+ * escapeHtml('List<Notifier> "a"'); // "List&lt;Notifier&gt; &quot;a&quot;"
+ */
 const escapeHtml = (/** @type {string} */ s) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/**
+ * HTML entities turned back into text, the named and the numbered ones.
+ * @example
+ * decodeEntities("List&#x3C;Notifier> &amp; more"); // "List<Notifier> & more"
+ */
 const decodeEntities = (/** @type {string} */ s) =>
   s
     .replace(/&lt;/g, "<")
@@ -110,12 +126,22 @@ const decodeEntities = (/** @type {string} */ s) =>
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&");
 
+/**
+ * One attribute of a GitBook tag or an HTML tag.
+ * @example
+ * attr('hint style="warning"', "style"); // "warning"
+ * attr('tab title="Java, Commands v2"', "title"); // "Java, Commands v2"
+ */
 const attr = (/** @type {string} */ tag, /** @type {string} */ name) =>
   tag.match(new RegExp(`${name}="([^"]*)"`))?.[1];
 
 /**
- * The pages of a SUMMARY.md, as groups of nested pages.
- * @param {string} text
+ * The pages of a SUMMARY.md, as its "## " groups of nested pages.
+ * @param {string} text the SUMMARY.md.
+ * @example
+ * parseSummary("## Tutorials\n* [Arm](tutorials/arm.md)\n  * [Step 1](tutorials/arm/motor-controller.md)\n");
+ * // [{ title: "", nodes: [] },
+ * //  { title: "Tutorials", nodes: [{ title: "Arm", file: "tutorials/arm.md", children: [{ title: "Step 1", ... }] }] }]
  */
 function parseSummary(text) {
   /** @type {{ title: string, nodes: { title: string, file: string, children: any[] }[] }[]} */
@@ -143,10 +169,13 @@ function parseSummary(text) {
 }
 
 /**
- * The page's address on the website: its group, its parents and its file name.
- * @param {Source} source
- * @param {string} groupTitle
- * @param {string[]} chain
+ * A page's address on the website: its group, its parents and its file name, as GitBook makes it.
+ * @param {Source} source the library.
+ * @param {string} groupTitle the SUMMARY.md group the page is in.
+ * @param {string[]} chain the files of the page's parents, then the page.
+ * @example
+ * pageUrl(yams, "Tutorials", ["tutorials/arm.md", "tutorials/arm/motor-controller.md"]);
+ * // "https://yams.yassrobotics.com/documentation/tutorials/arm/motor-controller"
  */
 function pageUrl(source, groupTitle, chain) {
   const parts = groupTitle ? [slugify(groupTitle)] : [];
@@ -160,14 +189,23 @@ function pageUrl(source, groupTitle, chain) {
 }
 
 /**
- * The files of the pages a SUMMARY.md's chosen groups list, hidden pages included.
- * @param {Source} source
- * @param {string} summaryText
+ * The files of every page a SUMMARY.md's shown groups list, hidden pages included: what Docs
+ * downloads. Throws when a group in SOURCES is gone from SUMMARY.md.
+ * @param {Source} source the library.
+ * @param {string} summaryText the SUMMARY.md.
+ * @returns {string[]}
+ * @example
+ * pageFiles(yams, summary); // ["tutorials/project-setup.md", "tutorials/arm.md", "tutorials/arm/motor-controller.md", ...]
  */
 function pageFiles(source, summaryText) {
   const groups = parseSummary(summaryText);
   /** @type {string[]} */
   const files = [];
+  /**
+   * Add each page and its children to files.
+   * @example
+   * walk(group.nodes);
+   */
   const walk = (/** @type {any[]} */ nodes) => {
     for (const n of nodes) {
       if (!/^https?:/.test(n.file)) files.push(path.normalize(n.file));
@@ -183,8 +221,11 @@ function pageFiles(source, summaryText) {
 }
 
 /**
- * The front matter's fields, and the page without it.
- * @param {string} text
+ * A page's front matter (the --- block GitBook puts at the top), and the page without it.
+ * @param {string} text the page's Markdown.
+ * @example
+ * frontMatter("---\ndescription: Learn how to program an Arm.\n---\n# Arm\n");
+ * // { meta: { description: "Learn how to program an Arm." }, body: "# Arm\n" }
  */
 function frontMatter(text) {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
@@ -199,16 +240,25 @@ function frontMatter(text) {
 }
 
 /**
- * A library's tree and pages, from its SUMMARY.md and its pages' text.
- * @param {Source} source
- * @param {string} summaryText
- * @param {(file: string) => string | null} readPage the page's Markdown, or null when it is missing
+ * A library's tutorial tree and its pages' titles, descriptions, website addresses and Previous/Next,
+ * from its SUMMARY.md. Hidden pages are left out of the tree and Previous/Next.
+ * @param {Source} source the library.
+ * @param {string} summaryText the SUMMARY.md.
+ * @param {(file: string) => string | null} readPage a page's Markdown, or null when it is missing.
  * @returns {BuiltSource}
+ * @example
+ * const built = buildSource(yams, summary, (file) => fs.readFileSync(path.join(repo, file), "utf8"));
+ * built.pages["yams/tutorials/arm/motor-controller"].next; // "yams/tutorials/arm/mechanism"
  */
 function buildSource(source, summaryText, readPage) {
   const groups = parseSummary(summaryText);
   /** Every page's website address, for links to pages that are not included. */
   const urls = new Map();
+  /**
+   * Record the website address of each page and its children.
+   * @example
+   * walkUrls(group, group.nodes, []);
+   */
   const walkUrls = (/** @type {any} */ group, /** @type {any[]} */ nodes, /** @type {string[]} */ chain) => {
     for (const node of nodes) {
       if (/^https?:/.test(node.file)) continue;
@@ -223,7 +273,13 @@ function buildSource(source, summaryText, readPage) {
   const files = new Map();
   /** @type {{ id: string, file: string, hidden: boolean, title: string, url: string }[]} */
   const order = [];
-  /** @returns {TreeNode[]} */
+  /**
+   * Turn SUMMARY.md's pages into tree nodes, recording each page's id, file and place in the order.
+   * A hidden page's children take its place.
+   * @returns {TreeNode[]}
+   * @example
+   * toTree(group, group.nodes, []); // [{ id: "yams/tutorials/arm", title: "Arm", children: [...] }, ...]
+   */
   const toTree = (/** @type {any} */ group, /** @type {any[]} */ nodes, /** @type {string[]} */ chain) =>
     nodes
       .filter((n) => !/^https?:/.test(n.file))
@@ -276,6 +332,11 @@ const md = new MarkdownIt({
   html: true,
   linkify: true,
   typographer: false,
+  /**
+   * Color a code block with highlight.js, for the languages registered at the top of this file.
+   * @example
+   * md.options.highlight("int a = 1;", "java", ""); // '<span class="hljs-type">int</span> a = ...'
+   */
   highlight(code, lang) {
     const language = { gradle: "groovy", sh: "bash", shell: "bash", jsonc: "json", "c++": "cpp", text: "plaintext" }[lang] ?? lang;
     if (language && hljs.getLanguage(language)) {
@@ -302,6 +363,12 @@ md.core.ruler.push("heading_ids", (state) => {
   });
 });
 
+/**
+ * A Markdown code block as <pre class="hljs" data-lang="...">, the shape media/tutorial.js adds
+ * Copy and Insert to.
+ * @example
+ * md.render("```java\nint a = 1;\n```"); // '<pre class="hljs" data-lang="java"><code>...</code></pre>'
+ */
 md.renderer.rules.fence = (tokens, i, options) => {
   const token = tokens[i];
   const lang = token.info.trim().split(/\s+/)[0] || "";
@@ -310,9 +377,15 @@ md.renderer.rules.fence = (tokens, i, options) => {
 };
 
 /**
- * Highlighted code split into lines, each closing the spans it opens and reopening them on the next.
+ * Colored code split into lines, each closing the color spans it opens and reopening them on the next,
+ * so a single line can be marked as new.
  * @param {string} code
  * @param {string} lang
+ * @returns {string[]}
+ * @example
+ * highlightedLines('String a = "x";\nint b;', "java");
+ * // ['<span class="hljs-type">String</span> <span class="hljs-variable">a</span> <span class="hljs-operator">=</span> <span class="hljs-string">&quot;x&quot;</span>;',
+ * //  '<span class="hljs-type">int</span> b;']
  */
 function highlightedLines(code, lang) {
   const html = md.options.highlight ? md.options.highlight(code, lang, "") : escapeHtml(code);
@@ -331,8 +404,12 @@ function highlightedLines(code, lang) {
 /**
  * GitBook writes code with highlighted lines as raw HTML: <pre class="language-java" data-title=...>
  * with each new line in <strong>. Turn it into a code block like the Markdown ones, keeping the
- * highlighted lines.
- * @param {string} html
+ * highlighted lines as <span class="line-new">.
+ * @param {string} html a rendered page.
+ * @returns {string}
+ * @example
+ * rawPreToCodeBlock('<pre class="language-java" data-title="Robot.java"><code>int a;\n<strong>int b;\n</strong></code></pre>');
+ * // '<div class="code-block" data-title="Robot.java"><pre class="hljs" data-lang="java"><code>...int a;\n<span class="line-new">...int b;</span></code></pre></div>'
  */
 function rawPreToCodeBlock(html) {
   return html.replace(
@@ -372,14 +449,24 @@ function rawPreToCodeBlock(html) {
 }
 
 /**
- * Turns GitBook's {% %} blocks into HTML that the Markdown keeps rendering inside.
- * @param {string} text
+ * Turn GitBook's {% %} blocks into HTML that the Markdown keeps rendering inside. Blocks inside code
+ * are left alone; unknown blocks are left out. A new GitBook block gets a case here.
+ * @param {string} text a page's Markdown.
+ * @returns {string}
+ * @example
+ * gitbookToHtml('{% hint style="info" %}\nRead this.\n{% endhint %}');
+ * // '\n<div class="hint hint-info">\n\nRead this.\n\n</div>\n'
  */
 function gitbookToHtml(text) {
   /** @type {string[]} */
   const out = [];
   /** @type {string | null} */
   let fence = null;
+  /**
+   * Add a line of HTML with blank lines around it, so the Markdown inside keeps rendering.
+   * @example
+   * block('<div class="tabs">');
+   */
   const block = (/** @type {string} */ html) => out.push("", html, "");
   for (const line of text.split(/\r?\n/)) {
     const fenceMark = line.match(/^\s*(`{3,}|~{3,})/);
@@ -463,12 +550,18 @@ function gitbookToHtml(text) {
 }
 
 /**
- * A page's HTML.
- * @param {Source} source
- * @param {PageInfo} page
- * @param {string} text the page's Markdown
- * @param {BuiltSource} built the library, for its links
- * @param {(file: string) => string | null} imageUrl the address of an image in the docs repo, or null when it is missing
+ * A page's HTML: GitBook blocks, Markdown, code colors, highlighted lines, no "In a hurry?" hints,
+ * links to shown pages opening in the panel and the others opening the website, and images at the
+ * addresses imageUrl gives.
+ * @param {Source} source the library.
+ * @param {PageInfo} page the page, from buildSource().
+ * @param {string} text the page's Markdown.
+ * @param {BuiltSource} built the library, from buildSource(), for its links.
+ * @param {(file: string) => string | null} imageUrl the address of an image in the repo, or null when it is missing.
+ * @returns {string}
+ * @example
+ * const page = built.pages["yams/tutorials/arm/motor-controller"];
+ * const html = renderPage(yams, page, read(page.file), built, (file) => `https://raw.githubusercontent.com/.../main/${file}`);
  */
 function renderPage(source, page, text, built, imageUrl) {
   const { body } = frontMatter(text);

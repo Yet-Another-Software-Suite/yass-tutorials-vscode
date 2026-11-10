@@ -29,7 +29,17 @@ const { insertCode } = require("./files");
 const { detectLanguage, languageSetting, setLanguage } = require("./language");
 const { VIEW_TYPE, DONE_KEY, RESUME_KEY, RESUME_MS, SETUP_PAGES, LANGUAGES } = require("./constants");
 
-/** @param {vscode.ExtensionContext} context */
+/**
+ * Start the extension. VS Code calls this once per window, when a WPILib project opens, when a
+ * tutorial panel is restored, or shortly after start-up.
+ * @param {vscode.ExtensionContext} context VS Code's handle for this extension: its folder, storage and subscriptions.
+ * @returns the pieces it made, so tests can drive them without clicking.
+ * @example
+ * // In a test that runs inside VS Code:
+ * const api = await vscode.extensions.getExtension("yass-robotics.yass-tutorials").activate();
+ * await api.docs.sync({ force: true });
+ * api.panel.show("yams/tutorials/arm/motor-controller");
+ */
 function activate(context) {
   // The tutorials, from the docs downloaded last time; new ones are fetched in the background.
   const docs = new Docs(context.globalStorageUri);
@@ -54,12 +64,23 @@ function activate(context) {
   const treeView = vscode.window.createTreeView("yassTutorials.tree", { treeDataProvider: tree, showCollapseAll: true });
   context.subscriptions.push(treeView);
 
-  // Pages marked done, saved for every project.
+  /**
+   * Save the pages marked done, and redraw the tree's marks and the page's Done button.
+   * @example
+   * done.add("yams/tutorials/arm/motor-controller");
+   * saveDone();
+   */
   const saveDone = () => {
     context.globalState.update(DONE_KEY, [...done]);
     tree.refresh();
     panel.refreshDone();
   };
+  /**
+   * Mark a page done or not done, and save it.
+   * @example
+   * setDone("yams/tutorials/arm/motor-controller", true); // ticks it in the tree
+   * setDone("yams/tutorials/arm/motor-controller", false); // unticks it
+   */
   const setDone = (/** @type {string} */ id, /** @type {boolean} */ value) => {
     if (value) done.add(id);
     else done.delete(id);
@@ -76,7 +97,12 @@ function activate(context) {
     },
   });
 
-  // A setup page is done once the project has what it installs.
+  /**
+   * Mark each setup page done once the project has the library it installs (SETUP_PAGES in
+   * constants.js). Runs at start, and whenever the project or the docs change.
+   * @example
+   * project.install("yams").then(markSetupDone); // "Create a project and install YAMS" is now done
+   */
   const markSetupDone = () => {
     const s = project.status;
     let changed = false;
@@ -99,8 +125,18 @@ function activate(context) {
     }),
   );
 
-  // Creating or opening a project opens it in a new window: remember the page so that window opens it.
+  /**
+   * Which folder this window has open, to tell a new project's window from the one a page was left in.
+   * @example
+   * workspaceKey(); // "file:///c%3A/Robots/MyRobot", or "none" with no folder open
+   */
   const workspaceKey = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? "none";
+  /**
+   * Remember a page, so the next window that opens a robot project shows it again (within RESUME_MS).
+   * @example
+   * rememberResume("yams/tutorials/arm/motor-controller");
+   * vscode.commands.executeCommand("wpilibcore.createNewProject"); // the new window reopens that page
+   */
   const rememberResume = (/** @type {string} */ id) =>
     context.globalState.update(RESUME_KEY, { id, at: Date.now(), from: workspaceKey() });
   panel.onPageShown = (id) => {
@@ -115,17 +151,40 @@ function activate(context) {
       if (!panel.panel) panel.show(resume.id);
     }, 1500);
   }
+  /**
+   * The page to come back to in a new project's window: the open one, or the Arm tutorial.
+   * @example
+   * rememberResume(resumePage());
+   */
   const resumePage = () => panel.currentId ?? "yams/tutorials/arm";
 
   /**
    * The page a command is for: the id it was given, the tree row it was run on, or the open page.
-   * @param {any} arg
+   * @param {any} arg what VS Code passed the command.
+   * @example
+   * pageId("yams/tutorials/arm"); // "yams/tutorials/arm", from a button or another command
+   * pageId(treeRow); // that row's page, from the tree's right-click menu
+   * pageId(undefined); // the open page, from the Command Palette
    */
   const pageId = (arg) => (typeof arg === "string" ? arg : arg?.kind === "page" ? arg.node.id : panel.currentId);
 
-  // Keep the tutorials up to date: from the docs on disk at once, from GitHub in the background.
+  /**
+   * Tell the Tutorials view whether the docs are downloaded, so it can say "Downloading" or offer
+   * "Try Again" (viewsWelcome in package.json reads yassTutorials.docs).
+   * @example
+   * setDocsState("loading"); // while the first download runs
+   * setDocsState(docs.ready ? "ready" : "failed");
+   */
   const setDocsState = (/** @type {string} */ state) => vscode.commands.executeCommand("setContext", "yassTutorials.docs", state);
   setDocsState(docs.ready ? "ready" : "loading");
+  /**
+   * Check for new docs, and update the tree and the open page when they changed. Shows progress in the
+   * Tutorials view while nothing is downloaded yet.
+   * @returns {Promise<{ changed: boolean, failed: string[] }>} whether anything changed, and which libraries failed.
+   * @example
+   * update(false); // checks the libraries not checked in the last 12 hours
+   * const { changed, failed } = await update(true); // checks every library now
+   */
   const update = (/** @type {boolean} */ force) => {
     const job = docs.sync({ force });
     if (!docs.ready) {
@@ -230,6 +289,14 @@ function activate(context) {
     }),
     // Brings back a tutorial left open when VS Code reloads.
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
+      /**
+       * Bring back a tutorial panel VS Code saved when the window closed, on the page it showed.
+       * @param {vscode.WebviewPanel} webviewPanel the restored panel.
+       * @param {any} state what the page saved with vscode.setState(), such as { pageId: "yams/tutorials/arm" }.
+       * @example
+       * // VS Code calls it after a reload, for each tutorial panel that was open.
+       * await serializer.deserializeWebviewPanel(webviewPanel, { pageId: "yams/tutorials/arm" });
+       */
       async deserializeWebviewPanel(webviewPanel, state) {
         panel.adopt(webviewPanel, state?.pageId);
       },
@@ -240,6 +307,12 @@ function activate(context) {
   return { panel, tree, done, project, projectTree, docs };
 }
 
+/**
+ * Stop the extension. Everything it made is in context.subscriptions, which VS Code disposes itself.
+ * @example
+ * // Called by VS Code when the window closes or the extension is turned off.
+ * deactivate();
+ */
 function deactivate() {}
 
 module.exports = { activate, deactivate };

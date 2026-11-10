@@ -45,7 +45,21 @@ const LIBRARIES = {
  * }} Status
  */
 
+/**
+ * The open robot project. Its status is kept up to date as its vendordeps change.
+ * @example
+ * const project = new Project();
+ * project.status.isWpilib; // true
+ * project.describe(); // "Java, Commands v2"
+ * project.onDidChange((status) => console.log(status.yams.installed?.version));
+ */
 class Project {
+  /**
+   * Read the project now, and watch its vendordeps folder and wpilib_preferences.json for changes.
+   * @example
+   * const project = new Project();
+   * context.subscriptions.push(project); // stops watching when the extension stops
+   */
   constructor() {
     this.changed = new vscode.EventEmitter();
     /** Fires when the project or its vendordeps change. */
@@ -53,6 +67,11 @@ class Project {
     /** @type {Status} */
     this.status = this.read();
     const watcher = vscode.workspace.createFileSystemWatcher("**/{vendordeps/*.json,.wpilib/wpilib_preferences.json}");
+    /**
+     * Read the project again when a watched file changes.
+     * @example
+     * watcher.onDidChange(refresh);
+     */
     const refresh = () => this.refresh();
     this.disposables = [
       watcher,
@@ -64,16 +83,35 @@ class Project {
     ];
   }
 
+  /**
+   * Stop watching the project.
+   * @example
+   * project.dispose();
+   */
   dispose() {
     for (const d of this.disposables) d.dispose();
   }
 
+  /**
+   * Read the project again, and tell everyone listening to onDidChange.
+   * @example
+   * // After writing a vendordep yourself:
+   * project.refresh();
+   */
   refresh() {
     this.status = this.read();
     this.changed.fire(this.status);
   }
 
-  /** @returns {Status} */
+  /**
+   * Read the open project: whether it is a WPILib project, its language and command framework, and
+   * its vendordeps.
+   * @returns {Status}
+   * @example
+   * const s = project.read();
+   * s.framework; // 3 for a project with WPILib's Commands v3 vendordep
+   * s.yams.wrongFramework; // true when it has YAMS for Commands v2 instead
+   */
   read() {
     const folders = vscode.workspace.workspaceFolders ?? [];
     const folder =
@@ -107,6 +145,11 @@ class Project {
     // WPILib's own command framework vendordep, not a library built for one such as YAMS (Commands v3).
     const framework = vendordeps.some((v) => /^commands\s*v?3$/i.test(v.name.trim()) || /^commandsv3\.json$/i.test(v.file)) ? 3 : 2;
 
+    /**
+     * Whether YAMS or YAGSL is installed, and whether for the project's command framework.
+     * @example
+     * library("yams"); // { installed: { name: "Yet Another Mechanism System (Commands v2)", ... }, wrongFramework: false }
+     */
     const library = (/** @type {keyof typeof LIBRARIES} */ key) => {
       const installed = vendordeps.find((v) => v.name.startsWith(LIBRARIES[key].prefix)) ?? null;
       const wrongFramework = !!installed && !installed.name.includes(`Commands v${framework}`);
@@ -125,17 +168,25 @@ class Project {
     };
   }
 
-  /** "Java, Commands v2" and the like. */
+  /**
+   * The project's code language in words.
+   * @returns {string} "Java, Commands v2", "Java, Commands v3" or "C++".
+   * @example
+   * `The tutorials show ${project.describe()} code.`;
+   */
   describe() {
     const s = this.status;
     return s.language === "cpp" ? "C++" : `Java, Commands v${s.framework}`;
   }
 
   /**
-   * Download a YASS vendordep for the project's command framework into its vendordeps folder.
-   * YAGSL needs YAMS, so installing YAGSL installs YAMS too.
-   * @param {keyof typeof LIBRARIES} key
-   * @returns {Promise<boolean>} whether it was installed
+   * Download a YASS vendordep for the project's command framework into its vendordeps folder, removing
+   * the one for the other framework. YAGSL needs YAMS, so installing YAGSL installs YAMS too. Offers to
+   * build the robot code afterwards, so Gradle downloads it.
+   * @param {keyof typeof LIBRARIES} key "yams" or "yagsl".
+   * @returns {Promise<boolean>} whether it was installed.
+   * @example
+   * await project.install("yams"); // writes vendordeps/yams_commands2.json in a Commands v2 project
    */
   async install(key) {
     const s = this.status;
