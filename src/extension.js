@@ -587,11 +587,16 @@ class TutorialPanel {
     if (!this.panel) {
       // The tutorial gets a group of its own on the right, locked so files open beside it, not over it.
       const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.Two;
-      this.adopt(vscode.window.createWebviewPanel(VIEW_TYPE, "YASS Tutorial", column, {}), id);
-      vscode.commands.executeCommand("workbench.action.lockEditorGroup").then(
-        () => vscode.commands.executeCommand("workbench.action.focusFirstEditorGroup"),
-        () => {},
-      );
+      const created = vscode.window.createWebviewPanel(VIEW_TYPE, "YASS Tutorial", column, {});
+      this.adopt(created, id);
+      // Lock the tutorial's own group, and only while it is the active one, never the code's.
+      setTimeout(() => {
+        if (!created.active) return;
+        vscode.commands.executeCommand("workbench.action.lockEditorGroup").then(
+          () => vscode.commands.executeCommand("workbench.action.focusPreviousGroup"),
+          () => {},
+        );
+      }, 150);
     } else {
       this.panel.reveal(undefined, false);
       this.load(id);
@@ -604,7 +609,10 @@ class TutorialPanel {
    * @param {string | undefined} id
    */
   adopt(panel, id) {
+    // One tutorial at a time: a second one, such as one more restored after a reload, replaces it.
+    const old = this.panel;
     this.panel = panel;
+    if (old && old !== panel) old.dispose();
     const roots = [vscode.Uri.joinPath(this.context.extensionUri, "media"), vscode.Uri.joinPath(this.context.extensionUri, "content")];
     panel.webview.options = { enableScripts: true, localResourceRoots: roots };
     panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "media", "icon.png");
@@ -615,7 +623,10 @@ class TutorialPanel {
         this.currentId = undefined;
       }
     });
-    panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
+    panel.webview.onDidReceiveMessage((msg) => {
+      // A page that is not the current tutorial anymore has nothing to say.
+      if (this.panel === panel) this.onMessage(msg);
+    });
     this.currentId = id && this.index.pages[id] ? id : Object.keys(this.index.pages)[0];
     // The page is sent once the webview's script says it is listening.
   }

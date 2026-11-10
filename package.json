@@ -35,6 +35,15 @@
     "workspaceContains:.wpilib/wpilib_preferences.json",
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "The tutorials work, but checking and setting up the robot project needs its files on disk."
+    }
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
