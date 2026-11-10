@@ -60,7 +60,7 @@ The tutorials update themselves, so you only install a new `yass-tutorials.vsix`
 
 ## Build
 
-[REFERENCE.md](REFERENCE.md) explains how the extension works and which file does what.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how the extension works and which file does what.
 
 ```
 npm install

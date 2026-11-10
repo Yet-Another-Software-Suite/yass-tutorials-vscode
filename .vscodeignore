@@ -6,6 +6,6 @@ dist/**
 docs/**
 .github/**
 images/**
-REFERENCE.md
+CONTRIBUTING.md
 node_modules/**
 src/**
