@@ -227,7 +227,7 @@
   },
   "scripts": {
     "build-docs": "node scripts/build-docs.mjs",
-    "package": "npm run build-docs && vsce package --allow-missing-repository --out dist/yass-tutorials.vsix"
+    "package": "npm run build-docs && node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && vsce package --allow-missing-repository --out dist/yass-tutorials.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.2.1",

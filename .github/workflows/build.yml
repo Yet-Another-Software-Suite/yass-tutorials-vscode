@@ -22,21 +22,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check out the YAMS docs
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Yet-Another-Software-Suite/YAMS-Gitbook
           path: docs/YAMS-Gitbook
 
       - name: Check out the YAGSL docs
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Yet-Another-Software-Suite/YAGSL-gitbook
           path: docs/YAGSL-gitbook
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -51,9 +51,9 @@ jobs:
         run: node scripts/build-docs.mjs --yams docs/YAMS-Gitbook --yagsl docs/YAGSL-gitbook
 
       - name: Package the vsix
-        run: npx vsce package --out dist/yass-tutorials.vsix
+        run: mkdir -p dist && npx vsce package --out dist/yass-tutorials.vsix
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: yass-tutorials-vsix
           path: dist/yass-tutorials.vsix
