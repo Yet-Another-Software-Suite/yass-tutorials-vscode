@@ -524,3 +524,11 @@ button.reveal:hover {
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
 }
+
+/* "Create ArmSubsystem.java" under the sentence that asks for it. */
+.create-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 12px;
+}

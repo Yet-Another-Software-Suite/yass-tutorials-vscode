@@ -1,13 +1,14 @@
 name: Build
 
-# Builds the vsix from the latest YAMS and YAGSL docs, and publishes it to the "latest" release
-# that the README's download button points at.
+# Checks that the extension can show the latest YAMS and YAGSL docs, packages the vsix, and
+# publishes it to the "latest" release that the README's download button points at. The vsix holds
+# no docs: the extension downloads them, so a new vsix is only needed when the extension changes.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # The docs change without this repo changing, so rebuild every day too.
+  # The docs change without this repo changing: check every day that the extension still shows them.
   schedule:
     - cron: "0 9 * * *"
 
@@ -47,11 +48,11 @@ jobs:
         # 2027.0.<run number>, so VS Code sees each build as an update.
         run: npm version --no-git-tag-version "$(node -p "require('./package.json').version.split('.').slice(0, 2).join('.')").${{ github.run_number }}"
 
-      - name: Build the tutorials
-        run: node scripts/build-docs.mjs --yams docs/YAMS-Gitbook --yagsl docs/YAGSL-gitbook
+      - name: Render every page of the latest docs
+        run: node scripts/check-docs.mjs --yams docs/YAMS-Gitbook --yagsl docs/YAGSL-gitbook
 
       - name: Package the vsix
-        run: mkdir -p dist && npx vsce package --out dist/yass-tutorials.vsix
+        run: npm run package
 
       - uses: actions/upload-artifact@v5
         with:
@@ -59,12 +60,12 @@ jobs:
           path: dist/yass-tutorials.vsix
 
       - name: Publish to the latest release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          notes="Built from ${GITHUB_SHA::7} with the YAMS docs at $(git -C docs/YAMS-Gitbook rev-parse --short HEAD) and the YAGSL docs at $(git -C docs/YAGSL-gitbook rev-parse --short HEAD). Install it in WPILib VS Code with Extensions, ..., Install from VSIX."
+          notes="Built from ${GITHUB_SHA::7}. The tutorials download and update themselves from the YAMS and YAGSL docs. Install it in WPILib VS Code with Extensions, ..., Install from VSIX."
           if gh release view latest > /dev/null 2>&1; then
             gh release edit latest --title "YASS Tutorials $version" --notes "$notes" --latest
           else

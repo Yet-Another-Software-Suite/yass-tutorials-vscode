@@ -1,7 +1,7 @@
 {
   "name": "yass-tutorials",
   "displayName": "YASS Tutorials",
-  "description": "Step by step YAMS and YAGSL tutorials in a sidebar tab, with code you can copy or insert straight into your robot project.",
+  "description": "Step by step YAMS and YAGSL tutorials in a sidebar tab, always the latest from the docs, with code you can copy, insert or create as files in your robot project.",
   "version": "2027.0.0",
   "publisher": "yass-robotics",
   "license": "LGPL-3.0",
@@ -29,7 +29,7 @@
     "swerve",
     "robotics"
   ],
-  "main": "./src/extension.js",
+  "main": "./out/extension.js",
   "activationEvents": [
     "onWebviewPanel:yassTutorials.page",
     "workspaceContains:.wpilib/wpilib_preferences.json",
@@ -73,7 +73,13 @@
     "viewsWelcome": [
       {
         "view": "yassTutorials.tree",
-        "contents": "No tutorials were bundled with this build."
+        "contents": "Downloading the YAMS and YAGSL tutorials...",
+        "when": "yassTutorials.docs == loading"
+      },
+      {
+        "view": "yassTutorials.tree",
+        "contents": "Couldn't download the tutorials. Check that you are online, then try again.\n[Try Again](command:yassTutorials.refresh)",
+        "when": "yassTutorials.docs == failed"
       }
     ],
     "commands": [
@@ -145,10 +151,21 @@
         "title": "Open Vendor Libraries",
         "category": "YASS",
         "icon": "$(library)"
+      },
+      {
+        "command": "yassTutorials.refresh",
+        "title": "Check for New Tutorials",
+        "category": "YASS",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "yassTutorials.refresh",
+          "when": "view == yassTutorials.tree",
+          "group": "navigation@0"
+        },
         {
           "command": "yassTutorials.search",
           "when": "view == yassTutorials.tree",
@@ -235,11 +252,16 @@
     }
   },
   "scripts": {
-    "build-docs": "node scripts/build-docs.mjs",
-    "package": "npm run build-docs && node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && vsce package --allow-missing-repository --out dist/yass-tutorials.vsix"
+    "bundle": "esbuild src/extension.js --bundle --platform=node --target=node18 --external:vscode --outfile=out/extension.js --minify-syntax",
+    "check-docs": "node scripts/check-docs.mjs",
+    "package": "npm run bundle && node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && vsce package --out dist/yass-tutorials.vsix",
+    "vscode:prepublish": "npm run bundle"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2"
+  },
+  "dependencies": {
     "highlight.js": "^11.10.0",
     "markdown-it": "^14.1.0"
   }

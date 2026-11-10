@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { Project, LIBRARIES } = require("./project");
+const { Docs } = require("./docs");
 
 const VIEW_TYPE = "yassTutorials.page";
 const DONE_KEY = "yassTutorials.done";
@@ -42,6 +43,7 @@ const PAGE_COMMANDS = [
   "yassTutorials.installYams",
   "yassTutorials.installYagsl",
   "yassTutorials.manageVendorLibs",
+  "yassTutorials.refresh",
 ];
 const LANGUAGES = {
   java2: "Java, Commands v2",
@@ -60,9 +62,10 @@ const LANGUAGES = {
 
 /** @param {vscode.ExtensionContext} context */
 function activate(context) {
-  const contentDir = vscode.Uri.joinPath(context.extensionUri, "content");
-  /** @type {Index} */
-  const index = JSON.parse(fs.readFileSync(path.join(contentDir.fsPath, "index.json"), "utf8"));
+  // The tutorials, from the docs downloaded last time; new ones are fetched in the background.
+  const docs = new Docs(context.globalStorageUri);
+  docs.load();
+  context.subscriptions.push(docs.changed);
   const done = new Set(/** @type {string[]} */ (context.globalState.get(DONE_KEY, [])));
 
   // The last text editor, so code can be inserted while the tutorial has focus.
@@ -79,7 +82,7 @@ function activate(context) {
   const projectTree = new ProjectTree(project);
   context.subscriptions.push(vscode.window.createTreeView("yassTutorials.project", { treeDataProvider: projectTree }));
 
-  const tree = new TutorialTree(index, done);
+  const tree = new TutorialTree(docs.index, done);
   const treeView = vscode.window.createTreeView("yassTutorials.tree", {
     treeDataProvider: tree,
     showCollapseAll: true,
@@ -97,7 +100,7 @@ function activate(context) {
     saveDone();
   };
 
-  const panel = (panelRef = new TutorialPanel(context, index, done, project, {
+  const panel = (panelRef = new TutorialPanel(context, docs, done, project, {
     setDone,
     insert: (code, lang) => insertCode(code, lang, lastEditor),
     revealInTree: (id) => {
@@ -172,10 +175,10 @@ function activate(context) {
     ),
     vscode.commands.registerCommand("yassTutorials.search", async () => {
       const picked = await vscode.window.showQuickPick(
-        Object.entries(index.pages).filter(([, page]) => !page.hidden).map(([id, page]) => ({
+        Object.entries(docs.index.pages).filter(([, page]) => !page.hidden).map(([id, page]) => ({
           id,
           label: `${done.has(id) ? "$(pass-filled)" : "$(book)"} ${page.title}`,
-          description: index.sources.find((s) => s.id === page.source)?.name,
+          description: docs.index.sources.find((s) => s.id === page.source)?.name,
           detail: page.description,
         })),
         { placeHolder: "Find a YAMS or YAGSL tutorial", matchOnDescription: true, matchOnDetail: true },
@@ -204,7 +207,7 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("yassTutorials.openInBrowser", (arg) => {
       const id = pageId(arg);
-      if (id && index.pages[id]) vscode.env.openExternal(vscode.Uri.parse(index.pages[id].url));
+      if (id && docs.index.pages[id]) vscode.env.openExternal(vscode.Uri.parse(docs.index.pages[id].url));
     }),
     vscode.commands.registerCommand("yassTutorials.resetProgress", async () => {
       const yes = await vscode.window.showWarningMessage(
@@ -227,8 +230,49 @@ function activate(context) {
     }),
   );
 
+  // Keep the tutorials up to date: from the docs on disk at once, from GitHub in the background.
+  const setDocsState = (/** @type {string} */ state) =>
+    vscode.commands.executeCommand("setContext", "yassTutorials.docs", state);
+  setDocsState(docs.ready ? "ready" : "loading");
+  const update = (/** @type {boolean} */ force) => {
+    const job = docs.sync({ force });
+    if (!docs.ready) {
+      vscode.window.withProgress({ location: { viewId: "yassTutorials.tree" }, title: "Downloading the tutorials" }, () => job);
+    }
+    return job.then((result) => {
+      setDocsState(docs.ready ? "ready" : "failed");
+      return result;
+    });
+  };
+  context.subscriptions.push(
+    docs.onDidChange(() => {
+      tree.setIndex(docs.index);
+      markSetupDone();
+      if (panel.currentId) panel.load(panel.currentId);
+    }),
+    vscode.commands.registerCommand("yassTutorials.refresh", async () => {
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "Checking for new tutorials" },
+        () => update(true),
+      );
+      if (result.failed.length) {
+        vscode.window.showWarningMessage(
+          `Couldn't download the ${result.failed.join(" and ")} tutorials. Are you online?${docs.ready ? " The ones you have keep working." : ""}`,
+        );
+      } else {
+        vscode.window.setStatusBarMessage(
+          `$(check) ${result.changed ? "Updated the tutorials" : "The tutorials are up to date"}: ${docs.describe()}`,
+          5000,
+        );
+      }
+    }),
+  );
+  update(!docs.ready);
+  const timer = setInterval(() => update(false), 60 * 60 * 1000);
+  context.subscriptions.push({ dispose: () => clearInterval(timer) });
+
   // For the extension's tests.
-  return { panel, tree, done, project, projectTree };
+  return { panel, tree, done, project, projectTree, docs };
 }
 
 /** @type {Project | undefined} */
@@ -434,6 +478,70 @@ async function createFile(project, code, title) {
   vscode.window.setStatusBarMessage(`$(check) Created ${rel}`, 4000);
 }
 
+/**
+ * The robot code's own folder: where the template's Robot.java is, such as src/main/java/first/robot.
+ * @param {string} root
+ */
+function robotPackageDir(root) {
+  const javaRoot = path.join(root, "src", "main", "java");
+  const queue = [javaRoot];
+  while (queue.length) {
+    const dir = /** @type {string} */ (queue.shift());
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    if (entries.some((e) => e.isFile() && e.name === "Robot.java")) return dir;
+    for (const e of entries) if (e.isDirectory()) queue.push(path.join(dir, e.name));
+  }
+  return path.join(javaRoot, "first", "robot");
+}
+
+/**
+ * Where "Create ArmSubsystem.java in the subsystems folder" puts the file.
+ * @param {string} root
+ * @param {string} name
+ * @param {string} folder
+ * @param {string} code the file's start, whose package line wins for Java
+ */
+function starterPathFor(root, name, folder, code) {
+  if (/^src[\\/]/.test(folder)) return path.join(root, ...folder.split(/[\\/]/), name);
+  if (name.endsWith(".java")) {
+    const pkg = code.match(/^\s*package\s+([\w.]+)\s*;/m);
+    if (pkg) return path.join(root, "src", "main", "java", ...pkg[1].split("."), name);
+    return path.join(robotPackageDir(root), ...folder.split(/[\\/]/), name);
+  }
+  const base = /\.(hpp|h)$/.test(name) ? "include" : "cpp";
+  return path.join(root, "src", "main", base, ...folder.split(/[\\/]/), name);
+}
+
+/**
+ * Create the file a step asks for, with its start, and open it beside the tutorial. A file that is
+ * already there is only opened.
+ * @param {Project} project
+ * @param {string} name
+ * @param {string} folder
+ * @param {string} code
+ */
+async function createStarter(project, name, folder, code) {
+  const s = project.status;
+  if (!s.folder || !s.isWpilib) {
+    vscode.window.showWarningMessage("Open your robot project first, then create the file.");
+    return;
+  }
+  const file = starterPathFor(s.folder.uri.fsPath, name, folder, code);
+  const rel = path.relative(s.folder.uri.fsPath, file).split(path.sep).join("/");
+  const existed = fs.existsSync(file);
+  if (!existed) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, code);
+  }
+  await vscode.window.showTextDocument(vscode.Uri.file(file), { viewColumn: codeColumn(), preview: false });
+  vscode.window.setStatusBarMessage(existed ? `${rel} is already there` : `$(check) Created ${rel}`, 4000);
+}
+
 /** @implements {vscode.TreeDataProvider<Item>} */
 class TutorialTree {
   /**
@@ -441,14 +549,22 @@ class TutorialTree {
    * @param {Set<string>} done
    */
   constructor(index, done) {
-    this.index = index;
     this.done = done;
+    this.changed = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.changed.event;
+    this.setIndex(index);
+  }
+
+  /**
+   * Show these tutorials.
+   * @param {Index} index
+   */
+  setIndex(index) {
+    this.index = index;
     /** @type {Map<string, Item>} */
     this.items = new Map();
     /** @type {Map<Item, Item>} */
     this.parents = new Map();
-    this.changed = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this.changed.event;
     /** @type {Map<Group, Item>} */
     this.groupItems = new Map();
     this.roots = index.sources.map((source) => {
@@ -463,6 +579,7 @@ class TutorialTree {
       }
       return root;
     });
+    this.refresh();
   }
 
   /**
@@ -576,18 +693,23 @@ class TutorialPanel {
    * @param {Project} project
    * @param {{ setDone: (id: string, value: boolean) => void, insert: (code: string, lang: string) => Promise<void>, revealInTree: (id: string) => void }} actions
    */
-  constructor(context, index, done, project, actions) {
+  constructor(context, docs, done, project, actions) {
+    this.docs = docs;
     this.project = project;
     /** @type {(id: string) => void} */
     this.onSetupPageShown = () => {};
     this.context = context;
-    this.index = index;
     this.done = done;
     this.actions = actions;
     /** @type {vscode.WebviewPanel | undefined} */
     this.panel = undefined;
     /** @type {string | undefined} */
     this.currentId = undefined;
+  }
+
+  /** The tutorials, as downloaded now. */
+  get index() {
+    return this.docs.index;
   }
 
   /** @param {string} id */
@@ -622,7 +744,7 @@ class TutorialPanel {
     const old = this.panel;
     this.panel = panel;
     if (old && old !== panel) old.dispose();
-    const roots = [vscode.Uri.joinPath(this.context.extensionUri, "media"), vscode.Uri.joinPath(this.context.extensionUri, "content")];
+    const roots = [vscode.Uri.joinPath(this.context.extensionUri, "media"), this.context.globalStorageUri];
     panel.webview.options = { enableScripts: true, localResourceRoots: roots };
     panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "media", "icon.png");
     panel.webview.html = this.shell(panel.webview);
@@ -636,7 +758,8 @@ class TutorialPanel {
       // A page that is not the current tutorial anymore has nothing to say.
       if (this.panel === panel) this.onMessage(msg);
     });
-    this.currentId = id && this.index.pages[id] ? id : Object.keys(this.index.pages)[0];
+    // A page that is not downloaded yet shows once it is.
+    this.currentId = id ?? Object.keys(this.index.pages)[0];
     // The page is sent once the webview's script says it is listening.
   }
 
@@ -648,9 +771,10 @@ class TutorialPanel {
     if (!this.panel || !this.index.pages[id]) return;
     this.currentId = id;
     const page = this.index.pages[id];
-    const file = path.join(this.context.extensionUri.fsPath, "content", "pages", id.replace(/[\\/]/g, "__") + ".html");
-    const assets = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "content", "assets")).toString();
-    const html = fs.readFileSync(file, "utf8").split("{{ASSETS}}").join(assets);
+    const webview = this.panel.webview;
+    const html =
+      this.docs.render(id, (file) => webview.asWebviewUri(vscode.Uri.file(file)).toString()) ??
+      "<p>This page has not downloaded yet. Run <strong>YASS: Check for New Tutorials</strong> when you are online.</p>";
     const source = this.index.sources.find((s) => s.id === page.source);
     this.panel.title = page.title;
     this.panel.webview.postMessage({
@@ -802,6 +926,9 @@ class TutorialPanel {
       case "createFile":
         await createFile(this.project, msg.code, msg.title);
         break;
+      case "createStarter":
+        await createStarter(this.project, msg.name, msg.folder, msg.code);
+        break;
       case "done":
         this.actions.setDone(msg.id, msg.done);
         if (msg.done && msg.next) this.load(msg.next);
@@ -846,6 +973,7 @@ class TutorialPanel {
         <option value="cpp">C++</option>
       </select>
     </label>
+    <button id="refresh" class="secondary" title="Check for new tutorials">&#x21bb; Refresh</button>
     <a id="website" href="#" class="button secondary" title="Open this page on the website">Website</a>
   </div>
 </header>

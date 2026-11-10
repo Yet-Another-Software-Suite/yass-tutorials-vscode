@@ -1,67 +1,85 @@
 # How YASS Tutorials works
 
-YASS Tutorials shows the YAMS and YAGSL GitBook tutorials inside WPILib VS Code. It works in two halves:
-
-1. **At build time**, `scripts/build-docs.mjs` reads the two GitBook repos and renders every chosen page to HTML. The extension never parses Markdown itself.
-2. **At run time**, `src/extension.js` shows those pages in a sidebar tree and a tutorial panel, and `src/project.js` reads and sets up the open robot project.
+YASS Tutorials shows the YAMS and YAGSL GitBook tutorials inside WPILib VS Code. Nothing is built ahead of time: the extension downloads the docs from their GitHub repos, keeps them on disk, and renders each page when it is opened. When the docs change, the tutorials change with them, without a new vsix.
 
 ```
-YAMS-Gitbook  ─┐                              ┌─ sidebar: Your Robot Project, Tutorials
-YAGSL-gitbook ─┴─ build-docs.mjs ─ content/ ─ extension.js ─┤
-                                                             └─ tutorial panel: media/tutorial.js + tutorial.css
+github.com/.../YAMS-Gitbook  ─┐   docs.js: download what changed,   render.js: SUMMARY.md to the tree,
+github.com/.../YAGSL-gitbook ─┴─  keep it in the extension's storage ─ each page to HTML when it opens
+                                                                     │
+                                       extension.js: sidebar, tutorial panel, project setup, files
+                                                                     │
+                                       media/tutorial.js + tutorial.css: the page in the panel
 ```
 
 ## Files
 
 | File | What it does |
 | ---- | ------------ |
-| `package.json` | The extension manifest: the activity bar tab, its two views, the commands and menus, the `yassTutorials.language` setting, Restricted Mode support, and the build scripts. |
-| `scripts/build-docs.mjs` | Builds `content/` from the GitBook repos. See [Building the pages](#building-the-pages). |
-| `content/` | Build output, not in git. `index.json` holds the tree and each page's title, website address and Previous/Next; `pages/*.html` holds each page; `assets/` holds the images the pages use. |
-| `src/extension.js` | Activation, commands, the two tree views, the tutorial panel, the setup cards, Create file and Insert. |
+| `package.json` | The manifest: the activity bar tab and its two views, the commands and menus, the `yassTutorials.language` setting, Restricted Mode support, and the scripts. `main` is the bundle in `out/`. |
+| `src/render.js` | Which pages are shown (`SOURCES`), and how GitBook Markdown becomes the tree and each page's HTML. Used by the extension on the docs it downloads, and by `scripts/check-docs.mjs` on local clones. |
+| `src/docs.js` | Downloads the docs and keeps them up to date. See [The docs](#the-docs). |
+| `src/extension.js` | Activation, commands, the two tree views, the tutorial panel, the setup cards, and Create file, Create (starter file) and Insert. |
 | `src/project.js` | Reads the open robot project (WPILib or not, Java or C++, Commands v2 or v3, its vendordeps) and installs the YAMS and YAGSL vendordeps. |
-| `media/tutorial.js` | The script inside the tutorial panel: tabs, code block buttons, collapsed complete files, the setup card, Previous/Next/Done, and links. |
+| `media/tutorial.js` | The script inside the tutorial panel: tabs, code block buttons, collapsed complete files, Create buttons, the setup card, Refresh, Previous/Next/Done, and links. |
 | `media/tutorial.css` | The panel's styles, all from the VS Code theme's colors, so light and dark themes both work. |
 | `media/activity.svg`, `media/icon.png` | The activity bar icon and the extension's icon. |
-| `.github/workflows/build.yml` | CI: builds the vsix from the latest docs and publishes it to the `latest` release. |
+| `scripts/check-docs.mjs` | Renders every page from local clones of the docs and fails on what the extension could not show. |
+| `.github/workflows/build.yml` | CI. See [CI and releases](#ci-and-releases). |
 | `images/` | README screenshots. Left out of the vsix. |
 
-## Building the pages
+esbuild bundles `src/` and its libraries (markdown-it and highlight.js) into `out/extension.js`, so the vsix holds only that bundle and `media/`.
 
-`node scripts/build-docs.mjs [--yams <YAMS-Gitbook>] [--yagsl <YAGSL-gitbook>]` defaults to the repos cloned next to this one. `SOURCES` at the top of the script says, for each library:
+## The docs
 
-* **`groups`**: the `## ` headings of `SUMMARY.md` whose pages are included. Everything else stays on the website.
-* **`hidden`**: pages that are built, so links to them work, but left out of the tree, the search and Previous/Next. YAMS hides `tutorials/project-setup.md` (the Your Robot Project view does that job) and `details/how-yams-drives-a-motor.md`.
-* **`site`**: the website the docs are published at, for links to pages that are not included.
+### What is shown
 
-For each page the script:
+`SOURCES` in `render.js` says, for each library:
 
-1. Strips the front matter, keeping `description` for the page subtitle.
-2. Turns GitBook's `{% hint %}`, `{% tabs %}`/`{% tab %}`, `{% stepper %}`/`{% step %}`, `{% code title %}`, `{% columns %}`, `{% embed %}` and `{% @github-files/github-code-block %}` into plain HTML that Markdown keeps rendering inside (`gitbookToHtml`).
-3. Renders the Markdown with markdown-it, and colors code with highlight.js. Headings get GitBook's ids, so `#the-complete-file` links still land.
-4. Turns GitBook's raw HTML code blocks (`<pre class="language-java" data-title=...>`, which the later tutorial steps use to highlight the lines a step adds) into the same code blocks, keeping those lines highlighted (`rawPreToCodeBlock`).
-5. Rewrites links. A link to an included page becomes `data-page="<id>"`, so it opens in the panel. Any other page gets its website address, built from its `SUMMARY.md` group, parents and file name (`pageUrl`). Images are copied to `content/assets/` and pointed at `{{ASSETS}}`, which the extension replaces with the panel's resource address. Images over 4 MB are left on the website.
+* **`github`** and **`branch`**: the repo and branch the docs come from.
+* **`groups`**: the `## ` headings of `SUMMARY.md` whose pages are shown. Everything else stays on the website.
+* **`hidden`**: pages left out of the tree, the search and Previous/Next, but still shown when a link points at them. YAMS hides `tutorials/project-setup.md` (the Your Robot Project view does that job) and `details/how-yams-drives-a-motor.md`.
+* **`site`**: the website the docs are published at, for links to pages that are not shown.
 
 A page's id is `<library>/<path without .md>`, such as `yams/tutorials/arm/motor-controller`.
 
-## At run time
+### Downloading and updating
 
-### Activation
+`Docs` keeps each library in `<extension storage>/docs/<library>/`, laid out like the repo, with a `state.json` that records the commit it last saw, every file's git blob hash at that commit (`tree`), and the hash of each file on disk (`have`).
 
-The extension starts when VS Code opens a WPILib project (`workspaceContains:.wpilib/wpilib_preferences.json`), when a tutorial panel is restored, or shortly after start-up (`onStartupFinished`). It declares Restricted Mode support, because it only reads its own files and writes text files. Without that, VS Code turns it off in an untrusted folder and the panel's buttons stop answering.
+When VS Code starts, and every hour after, `sync()` checks each library whose last check is more than 12 hours old. **Refresh** (on the page and in the Tutorials header, or **YASS: Check for New Tutorials**) checks right away.
 
-### The sidebar
+1. Ask GitHub for the branch's commit (`api.github.com/repos/<repo>/commits/<branch>`, one small request). The same commit means nothing to do.
+2. Otherwise, get the commit's file list with blob hashes (`git/trees/<commit>?recursive=1`).
+3. Download `SUMMARY.md` and the shown pages whose hash differs from the one on disk, from `raw.githubusercontent.com` at that commit. Files gone from the repo are removed.
+4. Rebuild the tree, and refresh the sidebar and the open page.
+
+Images are not downloaded ahead of time. A page shows an image from disk when its hash matches; otherwise it loads from GitHub and is saved in the background, so it works offline from then on.
+
+If anything fails, the docs on disk stay as they were. With nothing on disk yet and GitHub's API refusing (it allows few requests per network, which a classroom can use up), the pages are taken from the branch directly, and the next check makes updates incremental again.
+
+### Rendering a page
+
+`renderPage` in `render.js`:
+
+1. Strips the front matter. Its `description` is the page subtitle.
+2. Turns GitBook's `{% hint %}`, `{% tabs %}`/`{% tab %}`, `{% stepper %}`/`{% step %}`, `{% code title %}`, `{% columns %}`, `{% embed %}` and `{% @github-files/github-code-block %}` into plain HTML that Markdown keeps rendering inside (`gitbookToHtml`). Unknown blocks are left out.
+3. Renders the Markdown with markdown-it, and colors code with highlight.js. Headings get GitBook's ids, so `#the-complete-file` links still land.
+4. Turns GitBook's raw HTML code blocks (`<pre class="language-java" data-title=...>`, which the later tutorial steps use to highlight the lines a step adds) into the same code blocks, keeping those lines highlighted (`rawPreToCodeBlock`).
+5. Leaves out the "In a hurry?" hints, since the complete file is hidden behind a button.
+6. Rewrites links: to a shown page, `data-page="<id>"`, so it opens in the panel; to any other page, its website address, built from its `SUMMARY.md` group, parents and file name. Images get the address `Docs` gives them.
+
+## The sidebar
 
 The **YASS** activity bar tab has two views, both in `extension.js`:
 
 * **Your Robot Project** (`ProjectTree`): whether a robot project is open, its language and command framework, whether YAMS and YAGSL are installed (and for the right framework), and its other vendor libraries. Each row that needs something runs the command that fixes it.
-* **Tutorials** (`TutorialTree`): the libraries, their groups and their pages from `index.json`, with a done mark and a done count. `OPTIONAL_PAGES` (Troubleshooting) say "optional" and are not counted.
+* **Tutorials** (`TutorialTree`): the libraries, their groups and their pages, with a done mark and a done count. `OPTIONAL_PAGES` (Troubleshooting) say "optional" and are not counted. While the first download runs, or if it fails, the view says so.
 
-Progress is kept in VS Code's global state (`yassTutorials.done`), so it follows the user across projects.
+Progress is kept in VS Code's global state (`yassTutorials.done`), so it follows the student across projects.
 
-### The tutorial panel
+## The tutorial panel
 
-`TutorialPanel` keeps one webview panel. A second one, such as one more that VS Code restores after a reload, replaces the first. The panel opens in its own editor group on the right and locks it, so files the student opens go beside it, never over it. Code always opens in a group that is not the tutorial's (`codeColumn`).
+`TutorialPanel` keeps one webview panel. A second one, such as one more that VS Code restores after a reload, replaces the first. The panel opens in its own editor group on the right and locks it, so files go beside it, never over it. Code always opens in a group that is not the tutorial's (`codeColumn`).
 
 The panel's HTML is a fixed shell (`shell()`); each page arrives as a message. The page and the extension talk only through messages:
 
@@ -72,9 +90,10 @@ The panel's HTML is a fixed shell (`shell()`); each page arrives as a message. T
 | `done` `{id, done, next}` | Marks the page done or not done, and shows the next page. |
 | `copy` `{code}` | Copies the code. |
 | `insert` `{code, lang}` | Puts the code at the cursor of the last editor, indented to the cursor's line. |
-| `createFile` `{code, title}` | Writes a complete file into the project. See [Create file](#create-file). |
+| `createFile` `{code, title}` | Writes a complete file into the project. See [Creating files](#creating-files). |
+| `createStarter` `{name, folder, code}` | Creates the file a step asks for. See [Creating files](#creating-files). |
 | `language` `{language}` | Saves the code language setting. |
-| `command` `{command}` | Runs one of the setup commands in `PAGE_COMMANDS`. |
+| `command` `{command}` | Runs one of `PAGE_COMMANDS`: the setup commands and Refresh. |
 | `external` `{url}` | Opens the website. |
 
 | From the extension | What the page does |
@@ -84,13 +103,13 @@ The panel's HTML is a fixed shell (`shell()`); each page arrives as a message. T
 | `language` | Switches every tab group to the code language. |
 | `setup` | Redraws the setup card after the project changes. |
 
-On the page, `tutorial.js` picks the tab for the code language in every tab group (Java, Commands v2; Java, Commands v3; or C++), adds Copy and Insert to every code block, adds Create file to complete files and hides them behind **Show the complete file**, numbers the steps, and adds Copy next to URLs written as code.
+On the page, `tutorial.js` picks the tab for the code language in every tab group (Java, Commands v2; Java, Commands v3; or C++), adds Copy and Insert to every code block, adds Create file to complete files and hides them behind **Show the complete file**, adds a Create button under each "Create `X` in the `Y` folder" sentence, numbers the steps, and adds Copy next to URLs written as code.
 
-### The code language
+## The code language
 
 The `yassTutorials.language` setting is `auto`, `java2`, `java3` or `cpp`. `auto` follows the project: C++ when `.wpilib/wpilib_preferences.json` says so, Commands v3 when the project has WPILib's Commands v3 vendordep, otherwise Commands v2. Clicking a language tab on any page sets it for every page.
 
-### The project
+## The project
 
 `Project` in `project.js` reads the first workspace folder that has `.wpilib/wpilib_preferences.json`, and watches its `vendordeps` folder so the views and cards update as libraries come and go. The command framework comes from WPILib's own `Commands v2`/`Commands v3` vendordep, never from a library built for one.
 
@@ -106,20 +125,21 @@ The `yassTutorials.language` setting is `auto`, `java2`, `java3` or `cpp`. `auto
 
 Creating or opening a project opens it in a new window. Before that, the extension saves the page the student is on in `yassTutorials.resume`, and the new window opens that page again when it starts with a robot project, within three hours.
 
-### Create file
+## Creating files
 
-A code block is a complete file when its title ends in `.java` and the code has a `package` line, or its title is under `include/` or `cpp/` and the code starts with an `#include` or `#pragma`. `filePathFor` puts a Java file at `src/main/java/<package path>/<name>` and a C++ file at `src/main/<title>`. It asks before replacing a file that already has code in it.
+* **Create file**, on a complete file: a code block is complete when its title ends in `.java` and the code has a `package` line, or its title is under `include/` or `cpp/` and the code starts with an `#include` or `#pragma`. A Java file goes to `src/main/java/<package path>/<name>`, a C++ file to `src/main/<title>`. It asks before replacing a file that already has code in it.
+* **Create `ArmSubsystem.java`**, under "Create `ArmSubsystem.java` in the `subsystems` folder": creates the file the step asks for, from the page's complete file of that name: its `package` line, the class line, and the imports that line needs, so it compiles at once and each step's code goes inside. A C++ header starts with `#pragma once`. The folder is the template's robot package folder (where `Robot.java` is) plus the named folder, or the path the sentence gives for C++. A file that is already there is only opened.
 
 ## CI and releases
 
-`.github/workflows/build.yml` runs on every push to main, every pull request, every day, and on demand. It checks out YAMS-Gitbook and YAGSL-gitbook, numbers the build `2027.0.<run>`, builds the pages, packages `dist/yass-tutorials.vsix`, and on main publishes it to the `latest` release. The README's download button points at that file.
+`.github/workflows/build.yml` runs on every push to main, every pull request, every day, and on demand. It checks out YAMS-Gitbook and YAGSL-gitbook and runs `scripts/check-docs.mjs` on them, so a docs change the extension cannot show fails the daily run. Pushes to main and manual runs also number the build `2027.0.<run>`, package `dist/yass-tutorials.vsix`, and publish it to the `latest` release that the README's download button points at.
 
 ## Changing things
 
-* **Include another group of pages:** add its `SUMMARY.md` heading to `groups` in `SOURCES`.
+* **Show another group of pages:** add its `SUMMARY.md` heading to `groups` in `SOURCES`.
 * **Hide a page but keep links to it working:** add its file to `hidden`.
 * **Make a page optional:** add its id to `OPTIONAL_PAGES` in `extension.js`.
 * **A tutorial needs another vendor library:** add it to `VENDOR_NEEDS`, and how to spot it among the vendordeps to `VENDOR_MATCH`.
-* **A new GitBook block:** handle it in `gitbookToHtml`. Unknown blocks are left out.
+* **A new GitBook block:** handle it in `gitbookToHtml`.
 
-Build and package locally with `npm install` and `npm run package`.
+Locally: `npm install`, then `npm run check-docs` (with the docs cloned next to this repo, or `--yams`/`--yagsl` paths) and `npm run package`.

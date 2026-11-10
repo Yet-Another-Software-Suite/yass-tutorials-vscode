@@ -1,5 +1,4 @@
 scripts/**
-node_modules/**
 dist/**
 .git/**
 .gitignore
@@ -8,3 +7,5 @@ docs/**
 .github/**
 images/**
 REFERENCE.md
+node_modules/**
+src/**

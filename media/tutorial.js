@@ -110,6 +110,67 @@
     });
   }
 
+  /**
+   * "Create ArmSubsystem.java in the subsystems folder": a button that creates the file, started from
+   * the page's complete file so that it compiles, ready for the step's code.
+   */
+  function buildCreateButtons() {
+    content.querySelectorAll("p").forEach((p) => {
+      if (!/^Create\b/.test((p.textContent || "").trim())) return;
+      const codes = [...p.querySelectorAll(":scope > code")].map((c) => (c.textContent || "").trim());
+      /** @type {{ name: string, folder: string }[]} */
+      const files = [];
+      for (let i = 0; i + 1 < codes.length; i++) {
+        const name = codes[i];
+        const folder = codes[i + 1];
+        // A class or file name, followed by the folder it goes in (not by another file).
+        if (!/^[A-Z]\w*(\.(java|hpp|h|cpp))?$/.test(name) || /\.\w+$/.test(folder)) continue;
+        files.push({ name: /\./.test(name) ? name : `${name}.java`, folder });
+        i++;
+      }
+      if (!files.length) return;
+      const bar = document.createElement("div");
+      bar.className = "create-files";
+      for (const file of files) {
+        const button = document.createElement("button");
+        button.textContent = `Create ${file.name}`;
+        button.title = `Create ${file.name} in ${file.folder}, and open it`;
+        button.addEventListener("click", () => {
+          vscode.postMessage({ type: "createStarter", ...file, code: starterCode(file.name) });
+          flash(button, "Created");
+        });
+        bar.append(button);
+      }
+      p.after(bar);
+    });
+  }
+
+  /**
+   * The start of a file: its package, the imports its class line needs, and an empty class, taken
+   * from the page's complete file of that name. C++ headers start with #pragma once.
+   * @param {string} name
+   */
+  function starterCode(name) {
+    if (/\.(hpp|h)$/.test(name)) return "#pragma once\n";
+    if (!name.endsWith(".java")) return "";
+    const complete = [...content.querySelectorAll("pre.hljs")]
+      .map((pre) => ({ title: pre.closest(".code-block")?.getAttribute("data-title") || "", code: pre.textContent || "" }))
+      .find((b) => (b.title === name || b.title.endsWith("/" + name)) && isCompleteFile(b.title, b.code));
+    const className = name.replace(/\.java$/, "");
+    if (!complete) return `public class ${className} {\n}\n`;
+    const lines = complete.code.split("\n");
+    const pkg = lines.find((l) => /^\s*package\s/.test(l));
+    const declaration = lines.find((l) => new RegExp(`^\\s*(public\\s+)?(final\\s+)?class\\s+${className}\\b`).test(l)) ?? `public class ${className} {`;
+    const used = new Set(declaration.match(/\b[A-Z]\w*/g) ?? []);
+    const imports = lines.filter((l) => {
+      const m = l.match(/^\s*import\s+(?:static\s+)?[\w.]+\.(\w+)\s*;/);
+      return m && used.has(m[1]);
+    });
+    return [pkg, "", ...imports, ...(imports.length ? [""] : []), declaration.replace(/\s*\{?\s*$/, " {"), "}", ""]
+      .filter((l, i) => l !== undefined && !(i === 1 && !pkg))
+      .join("\n");
+  }
+
   /** Hide a complete file behind a button, so the steps come first and the whole answer second. */
   function collapse(/** @type {Element} */ pre, /** @type {HTMLElement} */ bar) {
     const lines = (pre.textContent || "").split("\n").length;
@@ -217,6 +278,7 @@
     buildTabs();
     buildCodeBlocks();
     buildUrlCopy();
+    buildCreateButtons();
     showImagesThatAreTooBig();
     renderSetup(msg.setup);
     setLanguage(msg.language, msg.languageSetting, msg.hasProject);
@@ -260,6 +322,7 @@
     if (!current) return;
     vscode.postMessage({ type: "done", id: current.id, done: !current.done, next: current.done ? null : current.page.next });
   });
+  $("refresh").addEventListener("click", () => vscode.postMessage({ type: "command", command: "yassTutorials.refresh" }));
   $("website").addEventListener("click", (e) => {
     e.preventDefault();
     if (current) vscode.postMessage({ type: "external", url: current.page.url });
