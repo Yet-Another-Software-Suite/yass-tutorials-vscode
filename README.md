@@ -1,5 +1,8 @@
 # YASS Tutorials
 
+[![Download the latest vsix](https://img.shields.io/badge/Download-latest%20vsix-2ea44f?style=for-the-badge&logo=visualstudiocode&logoColor=white)](https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/releases/download/latest/yass-tutorials.vsix)
+[![Build](https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/actions/workflows/build.yml/badge.svg)](https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/actions/workflows/build.yml)
+
 Learn to program your robot with [YAMS](https://yams.yassrobotics.com) and [YAGSL](https://docs.yagsl.com) without leaving WPILib VS Code.
 
 The extension adds a **YASS Tutorials** tab to the activity bar, next to the Explorer. It lists the YAMS and YAGSL tutorials and how-to guides, step by step.
@@ -14,10 +17,10 @@ The extension adds a **YASS Tutorials** tab to the activity bar, next to the Exp
 
 ## Install
 
-1. Download `yass-tutorials-<version>.vsix`.
+1. Download [yass-tutorials.vsix](https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/releases/download/latest/yass-tutorials.vsix). CI rebuilds it from the latest YAMS and YAGSL docs on every push and every day.
 2. In WPILib VS Code, open the Extensions view, click the **...** menu, choose **Install from VSIX...** and pick the file.
 
-Or from a terminal: `code --install-extension yass-tutorials-<version>.vsix`.
+Or from a terminal: `code --install-extension yass-tutorials.vsix`.
 
 ## Build
 
