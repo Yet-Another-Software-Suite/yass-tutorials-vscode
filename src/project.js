@@ -87,7 +87,8 @@ class Project {
     } catch {
       if (folder && fs.existsSync(path.join(root, "src", "main", "cpp"))) language = "cpp";
     }
-    const framework = vendordeps.some((v) => /commands\s*v?3/i.test(v.name) || /commandsv?3/i.test(v.file)) ? 3 : 2;
+    // WPILib's own command framework vendordep, not a library built for one such as YAMS (Commands v3).
+    const framework = vendordeps.some((v) => /^commands\s*v?3$/i.test(v.name.trim()) || /^commandsv3\.json$/i.test(v.file)) ? 3 : 2;
 
     const library = (/** @type {keyof typeof LIBRARIES} */ key) => {
       const installed = vendordeps.find((v) => v.name.startsWith(LIBRARIES[key].prefix)) ?? null;

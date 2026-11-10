@@ -29,11 +29,7 @@ const VENDOR_MATCH = {
   "Phoenix 6": (/** @type {{ file: string, name: string }} */ v) => /phoenix ?\(?v?6/i.test(v.name) || /^phoenix6/i.test(v.file),
 };
 /** Pages a student may skip: they are not counted in the progress. */
-const OPTIONAL_PAGES = new Set([
-  "yams/tutorials/project-setup",
-  "yams/details/how-yams-drives-a-motor",
-  "yams/tutorials/troubleshooting",
-]);
+const OPTIONAL_PAGES = new Set(["yams/tutorials/troubleshooting"]);
 /** YAGSL pages that come before installing YAGSL. */
 const BEFORE_YAGSL = ["yagsl/tutorial/README", "yagsl/tutorial/01-gather-your-robot-information"];
 const VENDOR_NOTE =
@@ -149,7 +145,8 @@ function activate(context) {
       if (!panel.panel) panel.show(resume.id);
     }, 1500);
   }
-  const setupPageFor = () => (panel.currentId && SETUP_PAGES[panel.currentId] ? panel.currentId : "yams/tutorials/project-setup");
+  // The page to come back to in the new project's window: the one the student is on.
+  const setupPageFor = () => panel.currentId ?? "yams/tutorials/arm";
 
   /** @param {any} arg */
   const pageId = (arg) => (typeof arg === "string" ? arg : arg?.kind === "page" ? arg.node.id : panel.currentId);
@@ -175,7 +172,7 @@ function activate(context) {
     ),
     vscode.commands.registerCommand("yassTutorials.search", async () => {
       const picked = await vscode.window.showQuickPick(
-        Object.entries(index.pages).map(([id, page]) => ({
+        Object.entries(index.pages).filter(([, page]) => !page.hidden).map(([id, page]) => ({
           id,
           label: `${done.has(id) ? "$(pass-filled)" : "$(book)"} ${page.title}`,
           description: index.sources.find((s) => s.id === page.source)?.name,
@@ -672,7 +669,7 @@ class TutorialPanel {
       hasProject: this.project.status.isWpilib,
       setup: this.card(id),
     });
-    if (SETUP_PAGES[id]) this.onSetupPageShown(id);
+    this.onSetupPageShown(id);
     this.actions.revealInTree(id);
   }
 
@@ -692,9 +689,10 @@ class TutorialPanel {
     const missing = (/** @type {"yams" | "yagsl"} */ key) => !s[key].installed || s[key].wrongFramework;
 
     const setupKey = /** @type {"yams" | "yagsl" | undefined} */ (SETUP_PAGES[id]);
-    if (setupKey) {
-      if (!s.isWpilib) {
-        return {
+    // Every page that adds code to a project starts by asking for one.
+    const needsProject = setupKey || page.source === "yams" || !BEFORE_YAGSL.includes(id);
+    if (!s.isWpilib && needsProject) {
+      return {
           state: "todo",
           title: "First, a robot project",
           body: `${s.folder ? `${s.name} isn't a WPILib robot project.` : "No robot project is open."} Create one, or open the one you have. WPILib opens it in a new window, and this tutorial opens there too.`,
@@ -704,7 +702,8 @@ class TutorialPanel {
           ],
           note: VENDOR_NOTE,
         };
-      }
+    }
+    if (setupKey) {
       const lib = s[setupKey];
       const label = LIBRARIES[setupKey].label;
       if (missing(setupKey)) {

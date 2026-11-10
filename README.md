@@ -11,13 +11,11 @@ The extension adds a **YASS** tab to the activity bar, next to the Explorer. It 
 
 ## From an empty window to a working project
 
-**Your Robot Project** shows whether a robot project is open and whether it has YAMS and YAGSL. With no project open, the first page offers to create one. WPILib opens the new project in its own window, and the tutorial opens there too.
+**Your Robot Project** shows whether a robot project is open and whether it has YAMS and YAGSL. With no project open, a tutorial offers to create one. WPILib opens the new project in its own window, and the tutorial opens there too.
 
-![The setup page with no project open, offering to create a robot project or open one](images/setup-no-project.png)
+![A tutorial with no project open, offering to create a robot project or open one](images/setup-no-project.png)
 
-One click installs the YAMS or YAGSL vendordep that matches your project's command framework. The setup page then marks itself done.
-
-![The setup page once the project is ready: YAMS is installed and the tutorials show Java, Commands v2 code](images/setup-ready.png)
+One click installs the YAMS or YAGSL vendordep that matches your project: Commands v2 or Commands v3, Java or C++.
 
 When a tutorial needs a library your project doesn't have yet, such as the REVLib a SparkMax needs or Phoenix 6 for a TalonFX, the page says so and opens WPILib's vendor library list.
 
@@ -46,6 +44,8 @@ Mark steps as done to track your progress, and search every tutorial with the ma
 Or from a terminal: `code --install-extension yass-tutorials.vsix`.
 
 ## Build
+
+[REFERENCE.md](REFERENCE.md) explains how the extension works and which file does what.
 
 The tutorials come from the YAMS and YAGSL GitBook repos, cloned next to this one as `YAMS-Gitbook` and `YAGSL-gitbook`.
 

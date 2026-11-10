@@ -28,6 +28,9 @@ const SOURCES = [
     description: "Yet Another Mechanism System",
     repo: path.resolve(arg("--yams", path.join(ROOT, "..", "YAMS-Gitbook"))),
     site: "https://yams.yassrobotics.com/documentation",
+    // Built so links to them work, but left out of the list, search and Previous/Next: the
+    // extension's Your Robot Project sets the project up, and the motor page is background.
+    hidden: ["tutorials/project-setup.md", "details/how-yams-drives-a-motor.md"],
     groups: [
       "Tutorials",
       "How-to: Mechanisms",
@@ -153,7 +156,8 @@ const decodeEntities = (s) =>
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#x?27;|&#39;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&");
 
@@ -333,9 +337,12 @@ for (const source of SOURCES) {
         const file = path.posix.normalize(node.file);
         const id = `${source.id}/${file.replace(/\.md$/, "")}`;
         bundled.set(file, id);
-        order.push({ id, file, title: node.title, url: pageUrl(source, group.title, [...chain, node.file]) });
-        return { id, title: node.title, children: toTree(group, node.children, [...chain, node.file]) };
-      });
+        const hidden = (source.hidden ?? []).includes(file);
+        order.push({ id, file, hidden, title: node.title, url: pageUrl(source, group.title, [...chain, node.file]) });
+        const children = toTree(group, node.children, [...chain, node.file]);
+        return hidden ? children : [{ id, title: node.title, children }];
+      })
+      .flat();
 
   const tree = {
     id: source.id,
@@ -350,7 +357,10 @@ for (const source of SOURCES) {
   };
   index.sources.push(tree);
 
-  order.forEach((page, i) => {
+  // Previous and Next skip the hidden pages.
+  const visible = order.filter((p) => !p.hidden);
+  order.forEach((page) => {
+    const i = visible.indexOf(page);
     const text = fs.readFileSync(path.join(source.repo, page.file), "utf8");
     const { meta, body } = frontMatter(text);
     let html = rawPreToCodeBlock(md.render(gitbookToHtml(body)));
@@ -390,8 +400,10 @@ for (const source of SOURCES) {
       description: meta.description ?? "",
       source: source.id,
       url: page.url,
-      prev: order[i - 1]?.id ?? null,
-      next: order[i + 1]?.id ?? null,
+      prev: i > 0 ? visible[i - 1].id : null,
+      // A hidden page leads into the first tutorial.
+      next: i >= 0 ? (visible[i + 1]?.id ?? null) : (visible[0]?.id ?? null),
+      ...(page.hidden ? { hidden: true } : {}),
     };
   });
 }
