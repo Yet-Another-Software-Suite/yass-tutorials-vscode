@@ -95,6 +95,7 @@
       });
       bar.append(label, copy, insert);
       if (isCompleteFile(title, code())) {
+        collapse(pre, bar);
         const create = document.createElement("button");
         create.className = "icon create";
         create.textContent = "Create file";
@@ -107,6 +108,22 @@
       }
       pre.parentElement?.insertBefore(bar, pre);
     });
+  }
+
+  /** Hide a complete file behind a button, so the steps come first and the whole answer second. */
+  function collapse(/** @type {Element} */ pre, /** @type {HTMLElement} */ bar) {
+    const lines = (pre.textContent || "").split("\n").length;
+    const show = document.createElement("button");
+    show.className = "reveal";
+    const set = (/** @type {boolean} */ open) => {
+      show.textContent = open ? "Hide the complete file" : `Show the complete file (${lines} lines)`;
+      show.setAttribute("aria-expanded", String(open));
+      pre.classList.toggle("collapsed", !open);
+      bar.classList.toggle("collapsed", !open);
+    };
+    show.addEventListener("click", () => set(pre.classList.contains("collapsed")));
+    pre.after(show);
+    set(false);
   }
 
   /** A whole file, not a part of one: Java with its package line, C++ starting with an #include or #pragma. */
@@ -193,6 +210,7 @@
     content.innerHTML = msg.html;
     $("source").textContent = msg.sourceName;
     $("crumb").textContent = msg.page.title;
+    $("optional").hidden = !msg.optional;
     $("description").textContent = msg.page.description;
     $("description").hidden = !msg.page.description;
     numberSteps();

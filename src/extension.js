@@ -28,6 +28,12 @@ const VENDOR_MATCH = {
   REVLib: (/** @type {{ file: string, name: string }} */ v) => /^revlib/i.test(v.name) || /^revlib/i.test(v.file),
   "Phoenix 6": (/** @type {{ file: string, name: string }} */ v) => /phoenix ?\(?v?6/i.test(v.name) || /^phoenix6/i.test(v.file),
 };
+/** Pages a student may skip: they are not counted in the progress. */
+const OPTIONAL_PAGES = new Set([
+  "yams/tutorials/project-setup",
+  "yams/details/how-yams-drives-a-motor",
+  "yams/tutorials/troubleshooting",
+]);
 /** YAGSL pages that come before installing YAGSL. */
 const BEFORE_YAGSL = ["yagsl/tutorial/README", "yagsl/tutorial/01-gather-your-robot-information"];
 const VENDOR_NOTE =
@@ -491,8 +497,10 @@ class TutorialTree {
     let finished = 0;
     const visit = (/** @type {TreeNode[]} */ list) => {
       for (const n of list) {
-        total++;
-        if (this.done.has(n.id)) finished++;
+        if (!OPTIONAL_PAGES.has(n.id)) {
+          total++;
+          if (this.done.has(n.id)) finished++;
+        }
         visit(n.children);
       }
     };
@@ -545,7 +553,9 @@ class TutorialTree {
       item.node.children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
     );
     t.id = item.node.id;
-    t.tooltip = new vscode.MarkdownString(`**${page.title}**\n\n${page.description}`);
+    const optional = OPTIONAL_PAGES.has(item.node.id);
+    t.tooltip = new vscode.MarkdownString(`**${page.title}**${optional ? " (optional)" : ""}\n\n${page.description}`);
+    if (optional) t.description = "optional";
     t.contextValue = isDone ? "page.done" : "page";
     t.command = { command: "yassTutorials.open", title: "Open Tutorial", arguments: [item.node.id] };
     if (item.node.children.length) {
@@ -554,7 +564,9 @@ class TutorialTree {
     }
     t.iconPath = isDone
       ? new vscode.ThemeIcon("pass-filled", new vscode.ThemeColor("testing.iconPassed"))
-      : new vscode.ThemeIcon(item.node.children.length ? "book" : "circle-large-outline");
+      : optional
+        ? new vscode.ThemeIcon("circle-large-outline", new vscode.ThemeColor("disabledForeground"))
+        : new vscode.ThemeIcon(item.node.children.length ? "book" : "circle-large-outline");
     return t;
   }
 }
@@ -651,6 +663,7 @@ class TutorialPanel {
       html,
       page,
       sourceName: source?.name ?? "",
+      optional: OPTIONAL_PAGES.has(id),
       prevTitle: page.prev ? this.index.pages[page.prev].title : null,
       nextTitle: page.next ? this.index.pages[page.next].title : null,
       done: this.done.has(id),
@@ -824,7 +837,7 @@ class TutorialPanel {
 </head>
 <body>
 <header class="bar">
-  <div class="crumbs"><span id="source"></span><span id="crumb-sep"> / </span><span id="crumb"></span></div>
+  <div class="crumbs"><span id="source"></span><span id="crumb-sep"> / </span><span id="crumb"></span> <span id="optional" class="badge" hidden>Optional</span></div>
   <div class="bar-actions">
     <label class="lang">Code
       <select id="language" aria-label="Code language">

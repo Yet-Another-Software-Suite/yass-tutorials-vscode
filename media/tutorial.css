@@ -494,3 +494,33 @@ button.inline-copy {
   background: var(--vscode-diffEditor-insertedLineBackground, rgba(63, 185, 80, 0.15));
   box-shadow: inset 3px 0 0 var(--vscode-testing-iconPassed, #3fb950);
 }
+
+/* Complete files start hidden behind a button. */
+pre.hljs.collapsed {
+  display: none;
+}
+
+button.reveal {
+  display: block;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  text-align: left;
+  background: var(--code-bg);
+  color: var(--vscode-textLink-foreground);
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+button.reveal:hover {
+  background: var(--vscode-list-hoverBackground, var(--code-bg));
+}
+
+.badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
