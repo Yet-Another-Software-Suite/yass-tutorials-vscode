@@ -1,6 +1,7 @@
 // @ts-check
-// What the open robot project has: whether it is a WPILib project, its language and command
-// framework, and which vendordeps are installed. Also installs the YAMS and YAGSL vendordeps.
+// The open robot project: whether it is a WPILib project, its language and command framework, and
+// which vendordeps it has, kept up to date as they change. Your Robot Project and the setup cards
+// show this. Also installs the YAMS and YAGSL vendordeps from cdn.yassrobotics.com.
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");

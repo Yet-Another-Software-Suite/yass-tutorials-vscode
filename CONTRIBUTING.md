@@ -6,7 +6,7 @@ YASS Tutorials shows the YAMS and YAGSL GitBook tutorials inside WPILib VS Code.
 github.com/.../YAMS-Gitbook  ─┐   docs.js: download what changed,   render.js: SUMMARY.md to the tree,
 github.com/.../YAGSL-gitbook ─┴─  keep it in the extension's storage ─ each page to HTML when it opens
                                                                      │
-                                       extension.js: sidebar, tutorial panel, project setup, files
+          extension.js starts it all: trees.js (sidebar), panel.js (tutorial panel), files.js, project.js
                                                                      │
                                        media/tutorial.js + tutorial.css: the page in the panel
 ```
@@ -16,9 +16,14 @@ github.com/.../YAGSL-gitbook ─┴─  keep it in the extension's storage ─ e
 | File | What it does |
 | ---- | ------------ |
 | `package.json` | The manifest: the activity bar tab and its two views, the commands and menus, the `yassTutorials.language` setting, Restricted Mode support, and the scripts. `main` is the bundle in `out/`. |
-| `src/render.js` | Which pages are shown (`SOURCES`), and how GitBook Markdown becomes the tree and each page's HTML. Used by the extension on the docs it downloads, and by `scripts/check-docs.mjs` on local clones. |
+| `src/extension.js` | Where the extension starts: creates the pieces below, wires them together, registers every command, and keeps the tutorials up to date. |
+| `src/constants.js` | The lists behavior comes from: setup pages, optional pages, the vendor library each tutorial needs, and the commands a page may run. Start here for most changes. |
+| `src/render.js` | Which docs pages are shown (`SOURCES`), and how GitBook Markdown becomes the tree and each page's HTML. Used by the extension on the docs it downloads, and by `scripts/check-docs.mjs` on local clones. |
 | `src/docs.js` | Downloads the docs and keeps them up to date. See [The docs](#the-docs). |
-| `src/extension.js` | Activation, commands, the two tree views, the tutorial panel, the setup cards, and Create file, Create (starter file) and Insert. |
+| `src/panel.js` | The tutorial panel: renders a page, sends it to `media/tutorial.js`, acts on its buttons, and decides the setup card (`card()`). |
+| `src/trees.js` | The two sidebar views: Your Robot Project (`ProjectTree`) and Tutorials (`TutorialTree`). |
+| `src/files.js` | Putting code into the project: Insert, Create file, and the Create button under "Create `X` in the `Y` folder". |
+| `src/language.js` | Which code a page shows: Commands v2, Commands v3 or C++, from the setting or the project. |
 | `src/project.js` | Reads the open robot project (WPILib or not, Java or C++, Commands v2 or v3, its vendordeps) and installs the YAMS and YAGSL vendordeps. |
 | `media/tutorial.js` | The script inside the tutorial panel: tabs, code block buttons, collapsed complete files, Create buttons, the setup card, Refresh, Previous/Next/Done, and links. |
 | `media/tutorial.css` | The panel's styles, all from the VS Code theme's colors, so light and dark themes both work. |
@@ -70,7 +75,7 @@ If anything fails, the docs on disk stay as they were. With nothing on disk yet 
 
 ## The sidebar
 
-The **YASS** activity bar tab has two views, both in `extension.js`:
+The **YASS** activity bar tab has two views, both in `trees.js`:
 
 * **Your Robot Project** (`ProjectTree`): whether a robot project is open, its language and command framework, whether YAMS and YAGSL are installed (and for the right framework), and its other vendor libraries. Each row that needs something runs the command that fixes it.
 * **Tutorials** (`TutorialTree`): the libraries, their groups and their pages, with a done mark and a done count. `OPTIONAL_PAGES` (Troubleshooting) say "optional" and are not counted. While the first download runs, or if it fails, the view says so.
@@ -134,12 +139,26 @@ Creating or opening a project opens it in a new window. Before that, the extensi
 
 `.github/workflows/build.yml` runs on every push to main, every pull request, every day, and on demand. It checks out YAMS-Gitbook and YAGSL-gitbook and runs `scripts/check-docs.mjs` on them, so a docs change the extension cannot show fails the daily run. Pushes to main and manual runs also number the build `2027.0.<run>`, package `dist/yass-tutorials.vsix`, and publish it to the `latest` release that the README's download button points at.
 
+## When something breaks
+
+| What you see | Where to look |
+| ------------ | ------------- |
+| The daily CI run fails on "Render every page of the latest docs" | Its log names the page and the problem. A block left in the page or an unclosed `<div>` means the docs use a GitBook block `gitbookToHtml` in `src/render.js` doesn't know: add a `case` for it. `no "X" group in SUMMARY.md` means a heading in the docs' `SUMMARY.md` was renamed: update `groups` in `SOURCES`. |
+| A page shows something wrong, but CI passes | Clone the docs next to this repo and run `npm run check-docs`, then change `src/render.js`. To see one page's HTML, call `renderPage` from a small script like `scripts/check-docs.mjs`. |
+| The sidebar says it couldn't download the tutorials | The extension needs `api.github.com` and `raw.githubusercontent.com`. Check the network, then click **Try Again**. The download is in `src/docs.js`. |
+| A button on a page does nothing | The page and the extension talk through messages: `onMessage` in `src/panel.js` handles each one, and the button is made in `media/tutorial.js`. A button that runs a command also needs it listed in `PAGE_COMMANDS` in `src/constants.js`. To see the page's own errors, run **Developer: Open Webview Developer Tools**. |
+| The extension does nothing at all | Run **Developer: Toggle Developer Tools** and look at the Console for `YASS Tutorials` errors. In an untrusted folder, VS Code keeps the extension on only because `capabilities` in `package.json` says it supports that. |
+| A card asks for the wrong library, or none | `VENDOR_NEEDS` and `VENDOR_MATCH` in `src/constants.js`, and what `src/project.js` reads from the project's `vendordeps`. |
+| Create or Create file puts a file in the wrong place | `filePathFor` and `starterPathFor` in `src/files.js`. The file's start comes from `starterCode` in `media/tutorial.js`. |
+
+To try a change, run `npm run package` and install `dist/yass-tutorials.vsix` in WPILib VS Code (**Extensions**, **...**, **Install from VSIX...**), then reload the window.
+
 ## Changing things
 
 * **Show another group of pages:** add its `SUMMARY.md` heading to `groups` in `SOURCES`.
 * **Hide a page but keep links to it working:** add its file to `hidden`.
-* **Make a page optional:** add its id to `OPTIONAL_PAGES` in `extension.js`.
-* **A tutorial needs another vendor library:** add it to `VENDOR_NEEDS`, and how to spot it among the vendordeps to `VENDOR_MATCH`.
+* **Make a page optional:** add its id to `OPTIONAL_PAGES` in `src/constants.js`.
+* **A tutorial needs another vendor library:** add it to `VENDOR_NEEDS`, and how to spot it among the vendordeps to `VENDOR_MATCH`, both in `src/constants.js`.
 * **A new GitBook block:** handle it in `gitbookToHtml`.
 
 Locally: `npm install`, then `npm run check-docs` (with the docs cloned next to this repo, or `--yams`/`--yagsl` paths) and `npm run package`.

@@ -1,6 +1,8 @@
 // @ts-check
-// The tutorial page: shows what the extension sends, and turns GitBook's tabs, steps and code
-// blocks into something to click.
+// The script inside the tutorial panel. It runs in the page, not in VS Code, so it can't open files
+// or run commands itself: it shows the page src/panel.js sends ("show" messages), and sends back what
+// a button asks for. It turns the page's tabs, steps and code blocks into something to click, adds
+// Copy, Insert, Create file and Create buttons, and draws the setup card and Previous/Next/Done.
 (function () {
   // @ts-ignore
   const vscode = acquireVsCodeApi();
