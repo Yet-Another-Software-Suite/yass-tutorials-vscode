@@ -1,8 +1,25 @@
 // @ts-check
 // The script inside the tutorial panel. It runs in the page, not in VS Code, so it can't open files
-// or run commands itself: it shows the page src/panel.js sends ("show" messages), and sends back what
-// a button asks for. It turns the page's tabs, steps and code blocks into something to click, adds
-// Copy, Insert, Create file and Create buttons, and draws the setup card and Previous/Next/Done.
+// or run commands itself: it only shows what src/panel.js sends, and sends back what a button asks
+// for (vscode.postMessage). CONTRIBUTING.md lists every message.
+//
+// For each page (render()), it:
+//
+//   - picks the tab for the code language in every tab group (tabLanguages(), applyLanguage()),
+//     and makes clicking a language tab pick it for every page,
+//   - adds Copy and Insert to every code block, and Create file to complete files, which start
+//     hidden behind "Show the complete file" (buildCodeBlocks(), collapse()),
+//   - adds a Create button under every "Create ArmSubsystem.java in the subsystems folder", with
+//     the file's start taken from the page's complete file (buildCreateButtons(), starterCode()),
+//   - numbers the steps, and adds Copy next to URLs written as code,
+//   - draws the setup card from what card() in src/panel.js decided (renderSetup()),
+//   - sets Previous, Next and Mark done.
+//
+// Links are handled in one place at the bottom: a link to another tutorial page opens it in the
+// panel, a website link opens the browser, and #links scroll the page.
+//
+// To see this script's errors, run Developer: Open Webview Developer Tools while the tutorial is open.
+
 (function () {
   // @ts-ignore
   const vscode = acquireVsCodeApi();

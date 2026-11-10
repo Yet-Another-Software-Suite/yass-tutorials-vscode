@@ -1,9 +1,31 @@
 // @ts-check
-// The YAMS and YAGSL docs, downloaded from their GitHub repos and kept in the extension's storage.
+// The YAMS and YAGSL docs: downloaded from their GitHub repos, kept in the extension's storage, and
+// kept up to date. Nothing about the tutorials is built into the extension.
 //
-// Each library's folder holds the files it needs at the commit it last saw: SUMMARY.md, the pages
-// and the images that have been shown. state.json records that commit and each file's git blob
-// hash, so an update downloads only what changed, and the tutorials keep working offline.
+// On disk, each library has a folder (<extension storage>/docs/<yams|yagsl>/) laid out like its repo,
+// holding SUMMARY.md, the pages that are shown, and the images that have been shown. state.json
+// there records:
+//
+//   - commit: the docs commit the files on disk come from,
+//   - tree:   every file's git blob hash at that commit (from GitHub's file list),
+//   - have:   the hash of each file on disk.
+//
+// sync() updates a library when its last check is more than 12 hours old, or right away with Refresh:
+//
+//   1. Ask GitHub for the branch's latest commit (api.github.com, one small request). The same commit
+//      as last time means nothing to do.
+//   2. Get that commit's file list with blob hashes.
+//   3. Download SUMMARY.md and the shown pages whose hash changed, from raw.githubusercontent.com.
+//   4. Build the tutorial tree again (load()), and fire onDidChange.
+//
+// Images are downloaded as they are first shown (saveImage()); until then they load from GitHub. A
+// failure keeps the docs on disk, so the tutorials keep working offline. If GitHub's API refuses
+// (it allows few requests per network, which a classroom can use up) and nothing is on disk yet, the
+// pages come straight from the branch instead (syncFromBranch()), and the next check makes updates
+// incremental again.
+//
+// render(id) gives a page's HTML, from render.js. Which pages are shown is SOURCES in render.js.
+
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");

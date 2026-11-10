@@ -1,7 +1,25 @@
 // @ts-check
-// Where the extension starts. activate() creates the pieces (the docs, the project, the two sidebar
-// views and the tutorial panel), wires them together, registers every command in package.json, and
-// keeps the tutorials up to date. The pieces themselves live in the other files in src/.
+// Where the extension starts. VS Code calls activate() when a WPILib project opens, when a tutorial
+// panel is restored, or shortly after VS Code starts (activationEvents in package.json).
+//
+// activate() builds every piece and connects them:
+//
+//   - Docs (docs.js): the tutorials, loaded from disk at once and updated from GitHub in the
+//     background, at start and every hour (each library is checked at most every 12 hours).
+//   - Project (project.js): the open robot project and its vendordeps.
+//   - ProjectTree and TutorialTree (trees.js): the two views in the YASS sidebar tab.
+//   - TutorialPanel (panel.js): the page beside the code.
+//
+// It also keeps the state that ties them together: the pages marked done (saved in VS Code's global
+// state under DONE_KEY), the last text editor (where Insert puts code), and the page to reopen when
+// creating or opening a project opens a new window (RESUME_KEY).
+//
+// Every command in package.json is registered at the bottom.
+// To add a command: add it to package.json's "commands" (and "menus" for a button), register it here,
+// and add it to PAGE_COMMANDS in constants.js if a button on the page runs it.
+//
+// activate() returns the pieces so tests can drive them without clicking.
+
 const vscode = require("vscode");
 const { Project } = require("./project");
 const { Docs } = require("./docs");

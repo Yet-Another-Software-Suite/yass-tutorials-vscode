@@ -1,8 +1,16 @@
-// Renders every page the extension shows from local clones of the docs, the same way the extension
-// renders the ones it downloads. CI runs it on the latest docs, so a change to the docs that the
-// extension can't show fails the build.
+// Renders every page the extension shows, from local clones of the YAMS and YAGSL docs, with the same
+// code the extension uses on the docs it downloads (src/render.js). It fails, naming the page, when:
+//
+//   - a page or image that SUMMARY.md or a page points at is missing,
+//   - a GitBook {% %} block was left in the page, which means render.js doesn't know it yet,
+//   - a page's <div>s don't close, which means a GitBook block wasn't closed.
+//
+// CI runs it every day on the latest docs (.github/workflows/build.yml), so a change to the docs that
+// the extension can't show fails the build before a student sees it.
 //
 //   node scripts/check-docs.mjs [--yams <YAMS-Gitbook>] [--yagsl <YAGSL-gitbook>]
+//
+// By default it reads the repos cloned next to this one.
 
 import fs from "node:fs";
 import path from "node:path";

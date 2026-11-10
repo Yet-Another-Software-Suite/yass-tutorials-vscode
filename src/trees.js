@@ -1,7 +1,20 @@
 // @ts-check
-// The two views in the YASS sidebar tab. ProjectTree is "Your Robot Project": the open project and
-// what the tutorials need in it, each row running the command that fixes it. TutorialTree is
-// "Tutorials": the libraries, groups and pages from the docs, with done marks and done counts.
+// The two views in the YASS sidebar tab (package.json "views"):
+//
+//   - ProjectTree, "Your Robot Project": the open robot project and what the tutorials need in it.
+//     With no robot project: Create a robot project and Open a robot project. With one: its name
+//     and code language, YAMS and YAGSL (installed, missing, or for the wrong command framework),
+//     and its other vendor libraries. Each row that needs something runs the command that fixes
+//     it. It redraws whenever Project (project.js) sees the project change.
+//   - TutorialTree, "Tutorials": each library (YAMS, YAGSL), its groups from SOURCES in render.js,
+//     and their pages, as Docs (docs.js) builds them. Each row shows a done mark, and libraries,
+//     groups and tutorials show how many of their pages are done, leaving out OPTIONAL_PAGES.
+//     Clicking a page opens it in the tutorial panel. setIndex() replaces the tree after the docs
+//     update.
+//
+// Both are VS Code TreeDataProviders: getChildren() lists the rows under a row, getTreeItem() says how
+// one row looks. Icons are codicon names (https://code.visualstudio.com/api/references/icons-in-labels).
+
 const vscode = require("vscode");
 const { LIBRARIES } = require("./project");
 const { OPTIONAL_PAGES } = require("./constants");

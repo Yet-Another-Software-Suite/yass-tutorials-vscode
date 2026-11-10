@@ -1,7 +1,28 @@
 // @ts-check
-// The tutorial panel: the page that shows a tutorial beside the code. It renders the page with Docs,
-// sends it to media/tutorial.js, and acts on what that page's buttons send back. It also decides the
-// card at the top of a page about what the robot project still needs (card()).
+// The tutorial panel: the page that shows a tutorial beside the code.
+//
+// TutorialPanel keeps one VS Code webview panel. The panel's HTML is a fixed shell (shell()) that
+// loads media/tutorial.js and media/tutorial.css; each page then arrives as a message:
+//
+//   1. load(id) renders the page with Docs (docs.js), and sends it with everything the page needs:
+//      Previous/Next, whether it is done, the code language, and the setup card.
+//   2. media/tutorial.js shows it, and sends back what the student clicks.
+//   3. onMessage() acts on that: open another page, copy, insert, create a file, mark done, change
+//      the language, open the website, or run one of PAGE_COMMANDS (constants.js).
+//
+// CONTRIBUTING.md lists every message in both directions.
+//
+// card(id) decides the card at the top of a page about what the robot project still needs: a project
+// at all, YAMS or YAGSL, or the vendor library its tutorial's hardware needs (VENDOR_NEEDS in
+// constants.js). It is redrawn when the project changes (refreshSetup()).
+//
+// The panel opens in its own editor group on the right and locks that group, so the files the student
+// opens go beside it rather than over it. A second panel, such as one more that VS Code restores
+// after a reload, replaces the first (adopt()), so every button reaches the extension.
+//
+// Images the docs saved on disk are allowed through localResourceRoots in adopt(); an image that does
+// not show is usually a folder missing from that list.
+
 const vscode = require("vscode");
 const crypto = require("crypto");
 const { LIBRARIES } = require("./project");

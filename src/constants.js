@@ -1,7 +1,20 @@
 // @ts-check
 // The lists the extension's behavior comes from. Most changes to what a page shows or asks for start
-// here: which pages are setup pages or optional, which vendor library each tutorial needs, and which
-// commands a page's buttons may run. Which docs pages are shown at all is SOURCES in render.js.
+// here, without touching the code that uses them:
+//
+//   - SETUP_PAGES: the pages that set the project up, and the library each installs. They show the
+//     install card, and are marked done once the project has that library.
+//   - VENDOR_NEEDS and VENDOR_MATCH: which motor controller library each tutorial's hardware needs
+//     (REVLib for a SparkMax, Phoenix 6 for a TalonFX), and how to find it among a project's
+//     vendordeps. A tutorial whose library is missing shows a card that opens the vendor libraries.
+//   - OPTIONAL_PAGES: pages that say "optional" and are not counted in the progress.
+//   - BEFORE_YAGSL: YAGSL pages that come before installing YAGSL, so they don't ask for a project.
+//   - PAGE_COMMANDS: the only commands a button on the page may run. A button that runs a command
+//     not listed here does nothing.
+//   - LANGUAGES: the code languages, as the yassTutorials.language setting names them.
+//
+// Page ids are "<library>/<path in the docs repo without .md>", such as
+// "yams/tutorials/arm/motor-controller". Which docs pages are shown at all is SOURCES in render.js.
 
 /** The tutorial panel's type, which VS Code uses to restore it after a reload. */
 const VIEW_TYPE = "yassTutorials.page";

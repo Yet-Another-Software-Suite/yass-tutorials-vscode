@@ -1,7 +1,29 @@
 // @ts-check
-// Turns the YAMS and YAGSL GitBook pages into what the extension shows: the tutorial tree from each
-// SUMMARY.md, and each page's HTML. It only works on text it is handed, so the extension uses it on
-// the docs it downloads, and scripts/check-docs.mjs uses it on local clones.
+// Turns the YAMS and YAGSL GitBook docs into what the extension shows. It only works on text it is
+// handed, so the extension uses it on the docs it downloads (docs.js), and scripts/check-docs.mjs
+// uses it on local clones of the docs, the same way.
+//
+//   - SOURCES: for each library, its GitHub repo and branch, the SUMMARY.md groups whose pages are
+//     shown, the pages hidden from the list (still shown when a link points at them), and the
+//     website that the other pages' links go to. Showing another group of pages starts here.
+//   - buildSource(): the tutorial tree, each page's title, description, website address and
+//     Previous/Next, from SUMMARY.md and the pages' front matter.
+//   - renderPage(): one page's HTML:
+//       1. gitbookToHtml() turns GitBook's {% %} blocks (hint, tabs, stepper, code, columns, embed,
+//          github-code-block) into plain HTML that the Markdown keeps rendering inside. Unknown
+//          blocks are left out.
+//       2. markdown-it renders the Markdown, and highlight.js colors the code. Headings get the ids
+//          GitBook gives them, so #links still land.
+//       3. rawPreToCodeBlock() turns GitBook's raw HTML code blocks, which the later tutorial steps
+//          use to highlight the lines a step adds, into the same code blocks as the Markdown ones,
+//          keeping those lines highlighted.
+//       4. The "In a hurry?" hints are left out, since the complete file is hidden behind a button.
+//       5. Links to shown pages open in the panel (data-page); any other page opens its website
+//          address. Images get the address Docs gives them.
+//
+// When the docs start using a GitBook block this file doesn't know, the daily CI check names the page,
+// and the fix is a new case in gitbookToHtml().
+
 const path = require("path").posix;
 const MarkdownIt = require("markdown-it");
 const hljs = require("highlight.js/lib/core");

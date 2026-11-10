@@ -1,7 +1,23 @@
 // @ts-check
-// The open robot project: whether it is a WPILib project, its language and command framework, and
-// which vendordeps it has, kept up to date as they change. Your Robot Project and the setup cards
-// show this. Also installs the YAMS and YAGSL vendordeps from cdn.yassrobotics.com.
+// The open robot project, and installing the YAMS and YAGSL vendordeps into it.
+//
+// Project reads the first workspace folder with a .wpilib/wpilib_preferences.json:
+//
+//   - whether it is a WPILib robot project at all,
+//   - its language (Java or C++, from wpilib_preferences.json),
+//   - its command framework: Commands v3 when it has WPILib's own Commands v3 vendordep, otherwise
+//     Commands v2 (never from a library built for one, such as YAMS (Commands v3)),
+//   - every vendordep in its vendordeps folder, and whether YAMS and YAGSL are there, and for the
+//     right framework.
+//
+// It watches the vendordeps folder and wpilib_preferences.json, and fires onDidChange when they
+// change, so Your Robot Project, the setup cards and the code language follow along.
+//
+// install("yams" | "yagsl") downloads https://cdn.yassrobotics.com/<yams|yagsl>_commands<2|3>.json
+// for the project's framework into vendordeps, removing that library's vendordep for the other
+// framework. YAGSL needs YAMS, so installing YAGSL installs YAMS too. Other vendor libraries come from
+// WPILib's own Vendor Dependencies view.
+
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");

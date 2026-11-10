@@ -1,7 +1,23 @@
 // @ts-check
-// Putting a tutorial's code into the robot project: Insert (at the cursor), Create file (a complete
-// file from a page) and the Create button under "Create ArmSubsystem.java in the subsystems folder"
-// (a file started from the page's complete file). Code always opens beside the tutorial, not over it.
+// Putting a tutorial's code into the robot project. Three ways, all from buttons on the page:
+//
+//   - Insert (insertCode): puts a code block at the cursor of the editor the student last worked
+//     in, shifted to that line's indentation. With no editor open, it opens a new file.
+//   - Create file (createFile): writes a complete file from a page into the project. Java goes to
+//     src/main/java/<its package path>/<name>, C++ to src/main/<its title>. A file that already has
+//     code in it is only replaced after asking.
+//   - Create, under "Create ArmSubsystem.java in the subsystems folder" (createStarter): creates the
+//     file the step asks for, started with the package, class line and imports from the page's
+//     complete file (starterCode in media/tutorial.js makes that start), so it compiles at once and
+//     each step's code goes inside it. Java goes to the folder named next to the template's
+//     Robot.java (robotPackageDir), or by its package line; C++ to the path the sentence gives. A
+//     file that is already there is only opened, never overwritten.
+//
+// Every file opens in an editor group that is not the tutorial's (codeColumn), so the tutorial stays
+// in view beside the code.
+//
+// When a file lands in the wrong place, the fix is in filePathFor or starterPathFor.
+
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
