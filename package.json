@@ -1,0 +1,237 @@
+{
+  "name": "yass-tutorials",
+  "displayName": "YASS Tutorials",
+  "description": "Step by step YAMS and YAGSL tutorials in a sidebar tab, with code you can copy or insert straight into your robot project.",
+  "version": "2027.0.0",
+  "publisher": "yass-robotics",
+  "license": "LGPL-3.0",
+  "icon": "media/icon.png",
+  "homepage": "https://yassrobotics.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/issues"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "FRC",
+    "WPILib",
+    "YAMS",
+    "YAGSL",
+    "swerve",
+    "robotics"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onWebviewPanel:yassTutorials.page",
+    "workspaceContains:.wpilib/wpilib_preferences.json",
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "yassTutorials",
+          "title": "YASS",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "yassTutorials": [
+        {
+          "id": "yassTutorials.project",
+          "name": "Your Robot Project",
+          "icon": "media/activity.svg",
+          "initialSize": 1
+        },
+        {
+          "id": "yassTutorials.tree",
+          "name": "Tutorials",
+          "icon": "media/activity.svg",
+          "initialSize": 4
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "yassTutorials.tree",
+        "contents": "No tutorials were bundled with this build."
+      }
+    ],
+    "commands": [
+      {
+        "command": "yassTutorials.open",
+        "title": "Open Tutorial",
+        "category": "YASS"
+      },
+      {
+        "command": "yassTutorials.search",
+        "title": "Find a Tutorial",
+        "category": "YASS",
+        "icon": "$(search)"
+      },
+      {
+        "command": "yassTutorials.chooseLanguage",
+        "title": "Choose Code Language",
+        "category": "YASS",
+        "icon": "$(code)"
+      },
+      {
+        "command": "yassTutorials.markDone",
+        "title": "Mark as Done",
+        "category": "YASS",
+        "icon": "$(check)"
+      },
+      {
+        "command": "yassTutorials.markNotDone",
+        "title": "Mark as Not Done",
+        "category": "YASS",
+        "icon": "$(circle-large-outline)"
+      },
+      {
+        "command": "yassTutorials.openInBrowser",
+        "title": "Open on the Website",
+        "category": "YASS",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "yassTutorials.resetProgress",
+        "title": "Reset Tutorial Progress",
+        "category": "YASS"
+      },
+      {
+        "command": "yassTutorials.createProject",
+        "title": "Create a Robot Project",
+        "category": "YASS",
+        "icon": "$(add)"
+      },
+      {
+        "command": "yassTutorials.openProject",
+        "title": "Open a Robot Project",
+        "category": "YASS"
+      },
+      {
+        "command": "yassTutorials.installYams",
+        "title": "Install YAMS in This Project",
+        "category": "YASS",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "yassTutorials.installYagsl",
+        "title": "Install YAGSL in This Project",
+        "category": "YASS",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "yassTutorials.manageVendorLibs",
+        "title": "Open Vendor Libraries",
+        "category": "YASS",
+        "icon": "$(library)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "yassTutorials.search",
+          "when": "view == yassTutorials.tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "yassTutorials.chooseLanguage",
+          "when": "view == yassTutorials.tree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "yassTutorials.resetProgress",
+          "when": "view == yassTutorials.tree",
+          "group": "z@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "yassTutorials.markDone",
+          "when": "view == yassTutorials.tree && viewItem == page",
+          "group": "inline@1"
+        },
+        {
+          "command": "yassTutorials.markNotDone",
+          "when": "view == yassTutorials.tree && viewItem == page.done",
+          "group": "inline@1"
+        },
+        {
+          "command": "yassTutorials.markDone",
+          "when": "view == yassTutorials.tree && viewItem == page",
+          "group": "1@1"
+        },
+        {
+          "command": "yassTutorials.markNotDone",
+          "when": "view == yassTutorials.tree && viewItem == page.done",
+          "group": "1@1"
+        },
+        {
+          "command": "yassTutorials.openInBrowser",
+          "when": "view == yassTutorials.tree && viewItem =~ /^page/",
+          "group": "1@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "yassTutorials.markDone",
+          "when": "false"
+        },
+        {
+          "command": "yassTutorials.markNotDone",
+          "when": "false"
+        },
+        {
+          "command": "yassTutorials.openInBrowser",
+          "when": "false"
+        },
+        {
+          "command": "yassTutorials.open",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "YASS Tutorials",
+      "properties": {
+        "yassTutorials.language": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "java2",
+            "java3",
+            "cpp"
+          ],
+          "enumDescriptions": [
+            "Pick from the open robot project: C++ when it has src/main/cpp, Java with Commands v3 when it has the Commands v3 vendordep, otherwise Java with Commands v2.",
+            "Java, Commands v2",
+            "Java, Commands v3",
+            "C++"
+          ],
+          "description": "Which code tab the tutorials open on."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build-docs": "node scripts/build-docs.mjs",
+    "package": "npm run build-docs && vsce package --allow-missing-repository --out dist/yass-tutorials.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.1",
+    "highlight.js": "^11.10.0",
+    "markdown-it": "^14.1.0"
+  }
+}

@@ -1,0 +1,6 @@
+scripts/**
+node_modules/**
+dist/**
+.git/**
+.gitignore
+**/*.map

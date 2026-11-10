@@ -1,0 +1,703 @@
+// @ts-check
+const vscode = require("vscode");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const { Project, LIBRARIES } = require("./project");
+
+const VIEW_TYPE = "yassTutorials.page";
+const DONE_KEY = "yassTutorials.done";
+const RESUME_KEY = "yassTutorials.resume";
+/** How long after leaving a setup page a new robot project window picks the tutorial back up. */
+const RESUME_MS = 3 * 60 * 60 * 1000;
+/** The pages that set the project up, and the library each one installs. */
+const SETUP_PAGES = {
+  "yams/tutorials/project-setup": "yams",
+  "yagsl/tutorial/02-install-yagsl": "yagsl",
+};
+/** The commands the tutorial page's buttons may run. */
+const PAGE_COMMANDS = [
+  "yassTutorials.createProject",
+  "yassTutorials.openProject",
+  "yassTutorials.installYams",
+  "yassTutorials.installYagsl",
+  "yassTutorials.manageVendorLibs",
+];
+const LANGUAGES = {
+  java2: "Java, Commands v2",
+  java3: "Java, Commands v3",
+  cpp: "C++",
+};
+
+/**
+ * @typedef {{ id: string, title: string, children: TreeNode[] }} TreeNode
+ * @typedef {{ title: string, nodes: TreeNode[] }} Group
+ * @typedef {{ id: string, name: string, description: string, site: string, groups: Group[] }} Source
+ * @typedef {{ title: string, description: string, source: string, url: string, prev: string | null, next: string | null }} PageInfo
+ * @typedef {{ sources: Source[], pages: Record<string, PageInfo> }} Index
+ * @typedef {{ kind: "source", source: Source } | { kind: "group", source: Source, group: Group } | { kind: "page", node: TreeNode }} Item
+ */
+
+/** @param {vscode.ExtensionContext} context */
+function activate(context) {
+  const contentDir = vscode.Uri.joinPath(context.extensionUri, "content");
+  /** @type {Index} */
+  const index = JSON.parse(fs.readFileSync(path.join(contentDir.fsPath, "index.json"), "utf8"));
+  const done = new Set(/** @type {string[]} */ (context.globalState.get(DONE_KEY, [])));
+
+  // The last text editor, so code can be inserted while the tutorial has focus.
+  let lastEditor = vscode.window.activeTextEditor;
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor && editor.document.uri.scheme !== "output") lastEditor = editor;
+    }),
+  );
+
+  const project = new Project();
+  context.subscriptions.push(project);
+  projectRef = project;
+  const projectTree = new ProjectTree(project);
+  context.subscriptions.push(vscode.window.createTreeView("yassTutorials.project", { treeDataProvider: projectTree }));
+
+  const tree = new TutorialTree(index, done);
+  const treeView = vscode.window.createTreeView("yassTutorials.tree", {
+    treeDataProvider: tree,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(treeView);
+
+  const saveDone = () => {
+    context.globalState.update(DONE_KEY, [...done]);
+    tree.refresh();
+    panel.refreshDone();
+  };
+  const setDone = (/** @type {string} */ id, /** @type {boolean} */ value) => {
+    if (value) done.add(id);
+    else done.delete(id);
+    saveDone();
+  };
+
+  const panel = new TutorialPanel(context, index, done, project, {
+    setDone,
+    insert: (code, lang) => insertCode(code, lang, lastEditor),
+    revealInTree: (id) => {
+      const item = tree.findPage(id);
+      if (item && treeView.visible) treeView.reveal(item, { select: true, focus: false }).then(undefined, () => {});
+    },
+  });
+
+  // A setup page is done once the project has what it installs.
+  const markSetupDone = () => {
+    const s = project.status;
+    let changed = false;
+    for (const [id, key] of Object.entries(SETUP_PAGES)) {
+      const lib = s[/** @type {"yams" | "yagsl"} */ (key)];
+      if (s.isWpilib && lib.installed && !lib.wrongFramework && !done.has(id)) {
+        done.add(id);
+        changed = true;
+      }
+    }
+    if (changed) saveDone();
+  };
+  markSetupDone();
+  context.subscriptions.push(
+    project.onDidChange(() => {
+      markSetupDone();
+      projectTree.refresh();
+      panel.refreshSetup();
+      panel.refreshLanguage();
+    }),
+  );
+
+  // Creating a project opens it in a new window: remember the page so that window opens it.
+  const workspaceKey = () => vscode.workspace.workspaceFolders?.[0]?.uri.toString() ?? "none";
+  const rememberResume = (/** @type {string} */ id) =>
+    context.globalState.update(RESUME_KEY, { id, at: Date.now(), from: workspaceKey() });
+  panel.onSetupPageShown = (id) => {
+    if (!project.status.isWpilib) rememberResume(id);
+  };
+  const resume = /** @type {{ id: string, at: number, from: string } | undefined} */ (context.globalState.get(RESUME_KEY));
+  if (resume && project.status.isWpilib && resume.from !== workspaceKey() && Date.now() - resume.at < RESUME_MS) {
+    context.globalState.update(RESUME_KEY, undefined);
+    // After VS Code has restored any tutorial left open in this window.
+    setTimeout(() => {
+      vscode.commands.executeCommand("workbench.view.extension.yassTutorials");
+      if (!panel.panel) panel.show(resume.id);
+    }, 1500);
+  }
+  const setupPageFor = () => (panel.currentId && SETUP_PAGES[panel.currentId] ? panel.currentId : "yams/tutorials/project-setup");
+
+  /** @param {any} arg */
+  const pageId = (arg) => (typeof arg === "string" ? arg : arg?.kind === "page" ? arg.node.id : panel.currentId);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("yassTutorials.open", (arg) => {
+      const id = pageId(arg);
+      if (id) panel.show(id);
+    }),
+    vscode.commands.registerCommand("yassTutorials.createProject", () => {
+      rememberResume(setupPageFor());
+      vscode.commands.executeCommand("wpilibcore.createNewProject");
+    }),
+    vscode.commands.registerCommand("yassTutorials.openProject", () => {
+      rememberResume(setupPageFor());
+      vscode.commands.executeCommand("workbench.action.files.openFolder");
+    }),
+    vscode.commands.registerCommand("yassTutorials.installYams", () => project.install("yams")),
+    vscode.commands.registerCommand("yassTutorials.installYagsl", () => project.install("yagsl")),
+    vscode.commands.registerCommand("yassTutorials.manageVendorLibs", () =>
+      vscode.commands.executeCommand("wpilibcore.manageVendorLibs"),
+    ),
+    vscode.commands.registerCommand("yassTutorials.search", async () => {
+      const picked = await vscode.window.showQuickPick(
+        Object.entries(index.pages).map(([id, page]) => ({
+          id,
+          label: `${done.has(id) ? "$(pass-filled)" : "$(book)"} ${page.title}`,
+          description: index.sources.find((s) => s.id === page.source)?.name,
+          detail: page.description,
+        })),
+        { placeHolder: "Find a YAMS or YAGSL tutorial", matchOnDescription: true, matchOnDetail: true },
+      );
+      if (picked) panel.show(picked.id);
+    }),
+    vscode.commands.registerCommand("yassTutorials.chooseLanguage", async () => {
+      const current = vscode.workspace.getConfiguration("yassTutorials").get("language", "auto");
+      const detected = detectLanguage();
+      const picked = await vscode.window.showQuickPick(
+        [
+          { value: "auto", label: "From my project", description: `currently ${LANGUAGES[detected]}` },
+          ...Object.entries(LANGUAGES).map(([value, label]) => ({ value, label })),
+        ].map((o) => ({ ...o, picked: o.value === current, label: (o.value === current ? "$(check) " : "") + o.label })),
+        { placeHolder: "Which code should the tutorials show?" },
+      );
+      if (picked) await setLanguage(picked.value);
+    }),
+    vscode.commands.registerCommand("yassTutorials.markDone", (arg) => {
+      const id = pageId(arg);
+      if (id) setDone(id, true);
+    }),
+    vscode.commands.registerCommand("yassTutorials.markNotDone", (arg) => {
+      const id = pageId(arg);
+      if (id) setDone(id, false);
+    }),
+    vscode.commands.registerCommand("yassTutorials.openInBrowser", (arg) => {
+      const id = pageId(arg);
+      if (id && index.pages[id]) vscode.env.openExternal(vscode.Uri.parse(index.pages[id].url));
+    }),
+    vscode.commands.registerCommand("yassTutorials.resetProgress", async () => {
+      const yes = await vscode.window.showWarningMessage(
+        "Mark every YASS tutorial as not done?",
+        { modal: true },
+        "Reset",
+      );
+      if (yes === "Reset") {
+        done.clear();
+        saveDone();
+      }
+    }),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("yassTutorials.language")) panel.refreshLanguage();
+    }),
+    vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
+      async deserializeWebviewPanel(webviewPanel, state) {
+        panel.adopt(webviewPanel, state?.pageId);
+      },
+    }),
+  );
+
+  // For the extension's tests.
+  return { panel, tree, done, project, projectTree };
+}
+
+/** @type {Project | undefined} */
+let projectRef;
+
+/** The open project's language: C++, Java with Commands v3, or Java with Commands v2. */
+function detectLanguage() {
+  const s = projectRef?.status;
+  if (!s) return "java2";
+  return s.language === "cpp" ? "cpp" : s.framework === 3 ? "java3" : "java2";
+}
+
+function currentLanguage() {
+  const setting = vscode.workspace.getConfiguration("yassTutorials").get("language", "auto");
+  return setting in LANGUAGES ? setting : detectLanguage();
+}
+
+/** @param {string} value */
+function setLanguage(value) {
+  return vscode.workspace
+    .getConfiguration("yassTutorials")
+    .update("language", value, vscode.ConfigurationTarget.Global);
+}
+
+/**
+ * Put code at the cursor of the editor the user last worked in, or in a new file when there is none.
+ * @param {string} code
+ * @param {string} lang
+ * @param {vscode.TextEditor | undefined} lastEditor
+ */
+async function insertCode(code, lang, lastEditor) {
+  let editor = lastEditor && !lastEditor.document.isClosed ? lastEditor : undefined;
+  if (!editor) {
+    const language = { java: "java", cpp: "cpp", "c++": "cpp", json: "json", groovy: "groovy", gradle: "groovy" }[lang];
+    const doc = await vscode.workspace.openTextDocument({ language: language ?? "plaintext", content: "" });
+    editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+  } else {
+    editor = await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+  }
+  const target = editor;
+  // Keep the snippet's own indentation, shifted to the cursor's.
+  const cursor = target.selection.active;
+  const indent = target.document.lineAt(cursor.line).text.slice(0, cursor.character).match(/^\s*/)?.[0] ?? "";
+  const text = code.replace(/\n$/, "").replace(/\n/g, "\n" + indent);
+  await target.edit((edit) => {
+    for (const selection of target.selections) edit.replace(selection, text);
+  });
+}
+
+/**
+ * The open robot project, and what the tutorials need in it.
+ * @implements {vscode.TreeDataProvider<vscode.TreeItem>}
+ */
+class ProjectTree {
+  /** @param {Project} project */
+  constructor(project) {
+    this.project = project;
+    this.changed = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.changed.event;
+  }
+
+  refresh() {
+    this.changed.fire(undefined);
+  }
+
+  /**
+   * @param {string} label
+   * @param {string} description
+   * @param {string} icon
+   * @param {string | undefined} command
+   * @param {string} tooltip
+   * @param {string} [color]
+   */
+  item(label, description, icon, command, tooltip, color) {
+    const t = new vscode.TreeItem(label);
+    t.description = description;
+    t.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
+    t.tooltip = tooltip;
+    if (command) t.command = { command, title: label };
+    return t;
+  }
+
+  getTreeItem(/** @type {vscode.TreeItem} */ item) {
+    return item;
+  }
+
+  getChildren() {
+    const s = this.project.status;
+    const ok = "testing.iconPassed";
+    if (!s.isWpilib) {
+      return [
+        this.item(
+          s.folder ? `${s.name} isn't a robot project` : "No robot project open",
+          "",
+          "warning",
+          undefined,
+          "The tutorials add code to a WPILib robot project. Create one, or open the one you have.",
+          "editorWarning.foreground",
+        ),
+        this.item(
+          "Create a robot project",
+          "",
+          "add",
+          "yassTutorials.createProject",
+          "Opens the WPILib project creator. The tutorial opens again in the new project's window.",
+        ),
+        this.item("Open a robot project", "", "folder-opened", "yassTutorials.openProject", "Open the folder of a robot project you already have."),
+      ];
+    }
+    const library = (/** @type {"yams" | "yagsl"} */ key, /** @type {string} */ why) => {
+      const lib = s[key];
+      const label = LIBRARIES[key].label;
+      const command = key === "yams" ? "yassTutorials.installYams" : "yassTutorials.installYagsl";
+      if (!lib.installed) {
+        return this.item(label, `click to install${why}`, "cloud-download", command, `Downloads the ${label} vendordep for Commands v${s.framework} into vendordeps.`);
+      }
+      if (lib.wrongFramework) {
+        return this.item(
+          label,
+          `click to switch to Commands v${s.framework}`,
+          "warning",
+          command,
+          `${lib.installed.name} is installed, but this project uses Commands v${s.framework}.`,
+          "editorWarning.foreground",
+        );
+      }
+      return this.item(label, lib.installed.version, "pass-filled", undefined, lib.installed.name, ok);
+    };
+    const others = s.vendordeps
+      .filter((v) => !v.name.startsWith(LIBRARIES.yams.prefix) && !v.name.startsWith(LIBRARIES.yagsl.prefix) && !/commands/i.test(v.name))
+      .map((v) => v.name);
+    return [
+      this.item(s.name, this.project.describe(), "pass-filled", undefined, `The tutorials show ${this.project.describe()} code.`, ok),
+      library("yams", ""),
+      library("yagsl", " (for swerve)"),
+      this.item(
+        "Vendor libraries",
+        others.length ? others.join(", ") : "REVLib, Phoenix 6, ...",
+        "library",
+        "yassTutorials.manageVendorLibs",
+        "Motor controller libraries such as REVLib and Phoenix 6. Click to open WPILib's vendor library list.",
+      ),
+    ];
+  }
+}
+
+/** @implements {vscode.TreeDataProvider<Item>} */
+class TutorialTree {
+  /**
+   * @param {Index} index
+   * @param {Set<string>} done
+   */
+  constructor(index, done) {
+    this.index = index;
+    this.done = done;
+    /** @type {Map<string, Item>} */
+    this.items = new Map();
+    /** @type {Map<Item, Item>} */
+    this.parents = new Map();
+    this.changed = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.changed.event;
+    /** @type {Map<Group, Item>} */
+    this.groupItems = new Map();
+    this.roots = index.sources.map((source) => {
+      /** @type {Item} */
+      const root = { kind: "source", source };
+      for (const group of source.groups) {
+        /** @type {Item} */
+        const groupItem = { kind: "group", source, group };
+        this.groupItems.set(group, groupItem);
+        this.parents.set(groupItem, root);
+        this.walk(group.nodes, groupItem);
+      }
+      return root;
+    });
+  }
+
+  /**
+   * @param {TreeNode[]} nodes
+   * @param {Item} parent
+   */
+  walk(nodes, parent) {
+    for (const node of nodes) {
+      /** @type {Item} */
+      const item = { kind: "page", node };
+      this.items.set(node.id, item);
+      this.parents.set(item, parent);
+      this.walk(node.children, item);
+    }
+  }
+
+  refresh() {
+    this.changed.fire(undefined);
+  }
+
+  /** @param {string} id */
+  findPage(id) {
+    return this.items.get(id);
+  }
+
+  /** @param {TreeNode[]} nodes */
+  count(nodes) {
+    let total = 0;
+    let finished = 0;
+    const visit = (/** @type {TreeNode[]} */ list) => {
+      for (const n of list) {
+        total++;
+        if (this.done.has(n.id)) finished++;
+        visit(n.children);
+      }
+    };
+    visit(nodes);
+    return { total, finished };
+  }
+
+  /** @param {Item} [item] */
+  getChildren(item) {
+    if (!item) return this.roots;
+    if (item.kind === "source") {
+      return item.source.groups.map((group) => this.groupItems.get(group));
+    }
+    const nodes = item.kind === "group" ? item.group.nodes : item.node.children;
+    return nodes.map((n) => this.items.get(n.id));
+  }
+
+  /** @param {Item} item */
+  getParent(item) {
+    return this.parents.get(item);
+  }
+
+  /** @param {Item} item */
+  getTreeItem(item) {
+    if (item.kind === "source") {
+      const t = new vscode.TreeItem(item.source.name, vscode.TreeItemCollapsibleState.Expanded);
+      const { total, finished } = this.count(item.source.groups.flatMap((g) => g.nodes));
+      t.description = `${finished}/${total}`;
+      t.tooltip = item.source.description;
+      t.iconPath = new vscode.ThemeIcon(item.source.id === "yagsl" ? "rocket" : "tools");
+      t.id = `source:${item.source.id}`;
+      return t;
+    }
+    if (item.kind === "group") {
+      const first = item.source.groups[0] === item.group;
+      const t = new vscode.TreeItem(
+        item.group.title,
+        first ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
+      );
+      const { total, finished } = this.count(item.group.nodes);
+      t.description = `${finished}/${total}`;
+      t.iconPath = new vscode.ThemeIcon(first ? "mortar-board" : "question");
+      t.id = `group:${item.source.id}:${item.group.title}`;
+      return t;
+    }
+    const page = this.index.pages[item.node.id];
+    const isDone = this.done.has(item.node.id);
+    const t = new vscode.TreeItem(
+      item.node.title,
+      item.node.children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+    );
+    t.id = item.node.id;
+    t.tooltip = new vscode.MarkdownString(`**${page.title}**\n\n${page.description}`);
+    t.contextValue = isDone ? "page.done" : "page";
+    t.command = { command: "yassTutorials.open", title: "Open Tutorial", arguments: [item.node.id] };
+    if (item.node.children.length) {
+      const { total, finished } = this.count(item.node.children);
+      t.description = `${finished}/${total}`;
+    }
+    t.iconPath = isDone
+      ? new vscode.ThemeIcon("pass-filled", new vscode.ThemeColor("testing.iconPassed"))
+      : new vscode.ThemeIcon(item.node.children.length ? "book" : "circle-large-outline");
+    return t;
+  }
+}
+
+class TutorialPanel {
+  /**
+   * @param {vscode.ExtensionContext} context
+   * @param {Index} index
+   * @param {Set<string>} done
+   * @param {Project} project
+   * @param {{ setDone: (id: string, value: boolean) => void, insert: (code: string, lang: string) => Promise<void>, revealInTree: (id: string) => void }} actions
+   */
+  constructor(context, index, done, project, actions) {
+    this.project = project;
+    /** @type {(id: string) => void} */
+    this.onSetupPageShown = () => {};
+    this.context = context;
+    this.index = index;
+    this.done = done;
+    this.actions = actions;
+    /** @type {vscode.WebviewPanel | undefined} */
+    this.panel = undefined;
+    /** @type {string | undefined} */
+    this.currentId = undefined;
+  }
+
+  /** @param {string} id */
+  show(id) {
+    if (!this.index.pages[id]) return;
+    if (!this.panel) {
+      const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active;
+      this.adopt(vscode.window.createWebviewPanel(VIEW_TYPE, "YASS Tutorial", column, {}), id);
+    } else {
+      this.panel.reveal(undefined, false);
+      this.load(id);
+    }
+  }
+
+  /**
+   * Take over a new panel, or one VS Code restored after a reload.
+   * @param {vscode.WebviewPanel} panel
+   * @param {string | undefined} id
+   */
+  adopt(panel, id) {
+    this.panel = panel;
+    const roots = [vscode.Uri.joinPath(this.context.extensionUri, "media"), vscode.Uri.joinPath(this.context.extensionUri, "content")];
+    panel.webview.options = { enableScripts: true, localResourceRoots: roots };
+    panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "media", "icon.png");
+    panel.webview.html = this.shell(panel.webview);
+    panel.onDidDispose(() => {
+      if (this.panel === panel) {
+        this.panel = undefined;
+        this.currentId = undefined;
+      }
+    });
+    panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
+    this.currentId = id && this.index.pages[id] ? id : Object.keys(this.index.pages)[0];
+    // The page is sent once the webview's script says it is listening.
+  }
+
+  /**
+   * @param {string} id
+   * @param {string} [anchor] the heading to scroll to
+   */
+  load(id, anchor) {
+    if (!this.panel || !this.index.pages[id]) return;
+    this.currentId = id;
+    const page = this.index.pages[id];
+    const file = path.join(this.context.extensionUri.fsPath, "content", "pages", id.replace(/[\\/]/g, "__") + ".html");
+    const assets = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "content", "assets")).toString();
+    const html = fs.readFileSync(file, "utf8").split("{{ASSETS}}").join(assets);
+    const source = this.index.sources.find((s) => s.id === page.source);
+    this.panel.title = page.title;
+    this.panel.webview.postMessage({
+      type: "show",
+      id,
+      anchor,
+      html,
+      page,
+      sourceName: source?.name ?? "",
+      prevTitle: page.prev ? this.index.pages[page.prev].title : null,
+      nextTitle: page.next ? this.index.pages[page.next].title : null,
+      done: this.done.has(id),
+      language: currentLanguage(),
+      languageSetting: vscode.workspace.getConfiguration("yassTutorials").get("language", "auto"),
+      hasProject: this.project.status.isWpilib,
+      setup: this.setup(id),
+    });
+    if (SETUP_PAGES[id]) this.onSetupPageShown(id);
+    this.actions.revealInTree(id);
+  }
+
+  /**
+   * What a setup page shows about the open project, or null on other pages.
+   * @param {string} id
+   */
+  setup(id) {
+    const key = SETUP_PAGES[id];
+    if (!key) return null;
+    const s = this.project.status;
+    const lib = s[/** @type {"yams" | "yagsl"} */ (key)];
+    const next = this.index.pages[id].next;
+    return {
+      isWpilib: s.isWpilib,
+      folder: s.name,
+      describe: this.project.describe(),
+      framework: s.framework,
+      label: LIBRARIES[key].label,
+      installed: lib.installed ? `${lib.installed.name} ${lib.installed.version}` : null,
+      wrongFramework: lib.wrongFramework,
+      install: key === "yams" ? "yassTutorials.installYams" : "yassTutorials.installYagsl",
+      next,
+      nextTitle: next ? this.index.pages[next].title : null,
+    };
+  }
+
+  refreshSetup() {
+    if (this.panel && this.currentId && SETUP_PAGES[this.currentId]) {
+      this.panel.webview.postMessage({ type: "setup", setup: this.setup(this.currentId) });
+    }
+  }
+
+  refreshDone() {
+    if (this.panel && this.currentId) {
+      this.panel.webview.postMessage({ type: "done", done: this.done.has(this.currentId) });
+    }
+  }
+
+  refreshLanguage() {
+    if (this.panel) {
+      this.panel.webview.postMessage({
+        type: "language",
+        language: currentLanguage(),
+        languageSetting: vscode.workspace.getConfiguration("yassTutorials").get("language", "auto"),
+      hasProject: this.project.status.isWpilib,
+      });
+    }
+  }
+
+  /** @param {any} msg */
+  async onMessage(msg) {
+    switch (msg.type) {
+      case "ready":
+        if (this.currentId) this.load(this.currentId);
+        break;
+      case "open":
+        this.load(msg.id, msg.anchor);
+        break;
+      case "external":
+        vscode.env.openExternal(vscode.Uri.parse(msg.url));
+        break;
+      case "copy":
+        await vscode.env.clipboard.writeText(msg.code);
+        vscode.window.setStatusBarMessage("$(check) Copied the code", 2000);
+        break;
+      case "insert":
+        await this.actions.insert(msg.code, msg.lang);
+        break;
+      case "done":
+        this.actions.setDone(msg.id, msg.done);
+        if (msg.done && msg.next) this.load(msg.next);
+        break;
+      case "language":
+        await setLanguage(msg.language);
+        break;
+      case "command":
+        if (PAGE_COMMANDS.includes(msg.command)) vscode.commands.executeCommand(msg.command);
+        break;
+    }
+  }
+
+  /** @param {vscode.Webview} webview */
+  shell(webview) {
+    const nonce = crypto.randomBytes(16).toString("base64");
+    const media = (/** @type {string} */ f) => webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, "media", f));
+    const csp = [
+      "default-src 'none'",
+      `img-src ${webview.cspSource} https: data:`,
+      `style-src ${webview.cspSource} 'unsafe-inline'`,
+      `script-src 'nonce-${nonce}'`,
+    ].join("; ");
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="${media("tutorial.css")}">
+<title>YASS Tutorial</title>
+</head>
+<body>
+<header class="bar">
+  <div class="crumbs"><span id="source"></span><span id="crumb-sep"> / </span><span id="crumb"></span></div>
+  <div class="bar-actions">
+    <label class="lang">Code
+      <select id="language" aria-label="Code language">
+        <option value="auto">From my project</option>
+        <option value="java2">Java, Commands v2</option>
+        <option value="java3">Java, Commands v3</option>
+        <option value="cpp">C++</option>
+      </select>
+    </label>
+    <a id="website" href="#" class="button secondary" title="Open this page on the website">Website</a>
+  </div>
+</header>
+<main>
+  <section id="setup" class="setup" aria-live="polite" hidden></section>
+  <p id="description" class="description"></p>
+  <article id="content"><p class="muted">Loading…</p></article>
+  <nav class="pager">
+    <button id="prev" class="secondary"></button>
+    <button id="done"></button>
+    <button id="next" class="secondary"></button>
+  </nav>
+</main>
+<script nonce="${nonce}" src="${media("tutorial.js")}"></script>
+</body>
+</html>`;
+  }
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate };
