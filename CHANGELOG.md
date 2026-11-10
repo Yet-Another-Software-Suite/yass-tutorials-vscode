@@ -6,3 +6,4 @@
 * Your Robot Project: create a project, and install YAMS and YAGSL for its command framework, in one click. Setup pages finish themselves once the project is ready.
 * Copy and Insert buttons on every code sample, and one code language for every sample.
 * Progress tracking and tutorial search.
+* Create file on complete files, a card for what a tutorial's project is missing, and a locked editor group for the tutorial.

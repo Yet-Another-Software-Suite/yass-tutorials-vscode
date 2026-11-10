@@ -15,6 +15,24 @@ const SETUP_PAGES = {
   "yams/tutorials/project-setup": "yams",
   "yagsl/tutorial/02-install-yagsl": "yagsl",
 };
+/** The motor controller libraries each tutorial's hardware needs, by page id prefix. */
+const VENDOR_NEEDS = [
+  { prefix: "yams/tutorials/arm", libs: ["REVLib"] },
+  { prefix: "yams/tutorials/elevator", libs: ["REVLib"] },
+  { prefix: "yams/tutorials/shooter-flywheels", libs: ["REVLib"] },
+  { prefix: "yams/tutorials/double-flywheel", libs: ["Phoenix 6"] },
+  { prefix: "yams/tutorials/swerve-drive", libs: ["REVLib", "Phoenix 6"] },
+];
+/** How to spot each vendor library among the installed vendordeps. */
+const VENDOR_MATCH = {
+  REVLib: (/** @type {{ file: string, name: string }} */ v) => /^revlib/i.test(v.name) || /^revlib/i.test(v.file),
+  "Phoenix 6": (/** @type {{ file: string, name: string }} */ v) => /phoenix ?\(?v?6/i.test(v.name) || /^phoenix6/i.test(v.file),
+};
+/** YAGSL pages that come before installing YAGSL. */
+const BEFORE_YAGSL = ["yagsl/tutorial/README", "yagsl/tutorial/01-gather-your-robot-information"];
+const VENDOR_NOTE =
+  "Your motor controller's library, such as REVLib or Phoenix 6, comes from the vendor libraries list. The page below shows each step by hand.";
+
 /** The commands the tutorial page's buttons may run. */
 const PAGE_COMMANDS = [
   "yassTutorials.createProject",
@@ -77,14 +95,14 @@ function activate(context) {
     saveDone();
   };
 
-  const panel = new TutorialPanel(context, index, done, project, {
+  const panel = (panelRef = new TutorialPanel(context, index, done, project, {
     setDone,
     insert: (code, lang) => insertCode(code, lang, lastEditor),
     revealInTree: (id) => {
       const item = tree.findPage(id);
       if (item && treeView.visible) treeView.reveal(item, { select: true, focus: false }).then(undefined, () => {});
     },
-  });
+  }));
 
   // A setup page is done once the project has what it installs.
   const markSetupDone = () => {
@@ -145,8 +163,9 @@ function activate(context) {
     }),
     vscode.commands.registerCommand("yassTutorials.installYams", () => project.install("yams")),
     vscode.commands.registerCommand("yassTutorials.installYagsl", () => project.install("yagsl")),
+    // WPILib's Vendor Dependencies view, with an Install button on each library.
     vscode.commands.registerCommand("yassTutorials.manageVendorLibs", () =>
-      vscode.commands.executeCommand("wpilibcore.manageVendorLibs"),
+      vscode.commands.executeCommand("wpilib.dependencyView.focus"),
     ),
     vscode.commands.registerCommand("yassTutorials.search", async () => {
       const picked = await vscode.window.showQuickPick(
@@ -211,6 +230,15 @@ function activate(context) {
 
 /** @type {Project | undefined} */
 let projectRef;
+/** @type {TutorialPanel | undefined} */
+let panelRef;
+
+/** The editor group code opens in: any group but the tutorial's, or a new one beside it. */
+function codeColumn() {
+  const tutorial = panelRef?.panel?.viewColumn;
+  const other = vscode.window.tabGroups.all.find((g) => g.viewColumn !== tutorial);
+  return other ? other.viewColumn : vscode.ViewColumn.Beside;
+}
 
 /** The open project's language: C++, Java with Commands v3, or Java with Commands v2. */
 function detectLanguage() {
@@ -242,7 +270,7 @@ async function insertCode(code, lang, lastEditor) {
   if (!editor) {
     const language = { java: "java", cpp: "cpp", "c++": "cpp", json: "json", groovy: "groovy", gradle: "groovy" }[lang];
     const doc = await vscode.workspace.openTextDocument({ language: language ?? "plaintext", content: "" });
-    editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+    editor = await vscode.window.showTextDocument(doc, codeColumn());
   } else {
     editor = await vscode.window.showTextDocument(editor.document, editor.viewColumn);
   }
@@ -344,13 +372,63 @@ class ProjectTree {
       library("yagsl", " (for swerve)"),
       this.item(
         "Vendor libraries",
-        others.length ? others.join(", ") : "REVLib, Phoenix 6, ...",
+        others.length ? others.join(", ") : "none yet: click to add",
         "library",
         "yassTutorials.manageVendorLibs",
         "Motor controller libraries such as REVLib and Phoenix 6. Click to open WPILib's vendor library list.",
       ),
     ];
   }
+}
+
+/**
+ * Where a complete file from a tutorial goes in the project: Java files by their package, C++ files
+ * by their path under src/main. Null for a part of a file.
+ * @param {string} root
+ * @param {string} title
+ * @param {string} code
+ */
+function filePathFor(root, title, code) {
+  const name = path.posix.basename(title);
+  if (name.endsWith(".java")) {
+    const pkg = code.match(/^\s*package\s+([\w.]+)\s*;/m);
+    return pkg ? path.join(root, "src", "main", "java", ...pkg[1].split("."), name) : null;
+  }
+  if (/\.(h|hpp|cpp)$/.test(name) && /^\s*(\/\/.*\n\s*)*#/.test(code)) {
+    const rel = title.replace(/^src\/main\//, "");
+    if (rel.startsWith("include/") || rel.startsWith("cpp/")) return path.join(root, "src", "main", ...rel.split("/"));
+  }
+  return null;
+}
+
+/**
+ * Write a complete file from a tutorial into the project, and open it beside the tutorial.
+ * @param {Project} project
+ * @param {string} code
+ * @param {string} title
+ */
+async function createFile(project, code, title) {
+  const s = project.status;
+  if (!s.folder || !s.isWpilib) {
+    vscode.window.showWarningMessage("Open your robot project first, then create the file.");
+    return;
+  }
+  const file = filePathFor(s.folder.uri.fsPath, title, code);
+  if (!file) {
+    vscode.window.showWarningMessage(`Couldn't tell where ${title} goes. Create it yourself, then use Insert.`);
+    return;
+  }
+  const uri = vscode.Uri.file(file);
+  const rel = path.relative(s.folder.uri.fsPath, file).split(path.sep).join("/");
+  if (fs.existsSync(file) && fs.readFileSync(file, "utf8").trim()) {
+    const choice = await vscode.window.showWarningMessage(`${rel} already exists. Replace what's in it?`, { modal: true }, "Replace", "Open It");
+    if (choice === "Open It") await vscode.window.showTextDocument(uri, { viewColumn: codeColumn() });
+    if (choice !== "Replace") return;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, code.replace(/\r?\n/g, "\n"));
+  await vscode.window.showTextDocument(uri, { viewColumn: codeColumn(), preview: false });
+  vscode.window.setStatusBarMessage(`$(check) Created ${rel}`, 4000);
 }
 
 /** @implements {vscode.TreeDataProvider<Item>} */
@@ -507,8 +585,13 @@ class TutorialPanel {
   show(id) {
     if (!this.index.pages[id]) return;
     if (!this.panel) {
-      const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active;
+      // The tutorial gets a group of its own on the right, locked so files open beside it, not over it.
+      const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.Two;
       this.adopt(vscode.window.createWebviewPanel(VIEW_TYPE, "YASS Tutorial", column, {}), id);
+      vscode.commands.executeCommand("workbench.action.lockEditorGroup").then(
+        () => vscode.commands.executeCommand("workbench.action.focusFirstEditorGroup"),
+        () => {},
+      );
     } else {
       this.panel.reveal(undefined, false);
       this.load(id);
@@ -563,39 +646,97 @@ class TutorialPanel {
       language: currentLanguage(),
       languageSetting: vscode.workspace.getConfiguration("yassTutorials").get("language", "auto"),
       hasProject: this.project.status.isWpilib,
-      setup: this.setup(id),
+      setup: this.card(id),
     });
     if (SETUP_PAGES[id]) this.onSetupPageShown(id);
     this.actions.revealInTree(id);
   }
 
   /**
-   * What a setup page shows about the open project, or null on other pages.
+   * The card at the top of a page about what the open project still needs, or null when it has it.
    * @param {string} id
    */
-  setup(id) {
-    const key = SETUP_PAGES[id];
-    if (!key) return null;
+  card(id) {
     const s = this.project.status;
-    const lib = s[/** @type {"yams" | "yagsl"} */ (key)];
-    const next = this.index.pages[id].next;
+    const page = this.index.pages[id];
+    const describe = this.project.describe();
+    const install = (/** @type {"yams" | "yagsl"} */ key) => ({
+      label: `Install ${LIBRARIES[key].label} for Commands v${s.framework}`,
+      command: key === "yams" ? "yassTutorials.installYams" : "yassTutorials.installYagsl",
+    });
+    const vendorLibs = { label: "Open vendor libraries", command: "yassTutorials.manageVendorLibs", secondary: true };
+    const missing = (/** @type {"yams" | "yagsl"} */ key) => !s[key].installed || s[key].wrongFramework;
+
+    const setupKey = /** @type {"yams" | "yagsl" | undefined} */ (SETUP_PAGES[id]);
+    if (setupKey) {
+      if (!s.isWpilib) {
+        return {
+          state: "todo",
+          title: "First, a robot project",
+          body: `${s.folder ? `${s.name} isn't a WPILib robot project.` : "No robot project is open."} Create one, or open the one you have. WPILib opens it in a new window, and this tutorial opens there too.`,
+          actions: [
+            { label: "Create a robot project", command: "yassTutorials.createProject" },
+            { label: "Open a robot project", command: "yassTutorials.openProject", secondary: true },
+          ],
+          note: VENDOR_NOTE,
+        };
+      }
+      const lib = s[setupKey];
+      const label = LIBRARIES[setupKey].label;
+      if (missing(setupKey)) {
+        return {
+          state: "todo",
+          title: `Install ${label}`,
+          body: lib.wrongFramework
+            ? `${s.name} has ${lib.installed?.name}, but it uses ${describe}. Switch it to the Commands v${s.framework} vendordep.`
+            : `${s.name} (${describe}) doesn't have ${label} yet. One click downloads the right vendordep into its vendordeps folder.`,
+          actions: [install(setupKey), vendorLibs],
+          note: VENDOR_NOTE,
+        };
+      }
+      return {
+        state: "ready",
+        title: `${s.name} is ready`,
+        body: `It has ${lib.installed?.name} ${lib.installed?.version}, and the tutorials show ${describe} code. You can skip the rest of this page.`,
+        actions: page.next ? [{ label: `Next: ${this.index.pages[page.next].title} →`, open: page.next }] : [],
+      };
+    }
+
+    // Any other page: only what the open project is missing for it.
+    if (!s.isWpilib) return null;
+    const needs = [];
+    /** @type {{ label: string, command?: string, open?: string, secondary?: boolean }[]} */
+    const actions = [];
+    if (page.source === "yams" && missing("yams")) {
+      needs.push("YAMS");
+      actions.push(install("yams"));
+    }
+    if (page.source === "yagsl" && !BEFORE_YAGSL.includes(id) && missing("yagsl")) {
+      needs.push("YAGSL");
+      actions.push(install("yagsl"));
+    }
+    const libs = VENDOR_NEEDS.filter((n) => id === n.prefix || id.startsWith(n.prefix + "/")).flatMap((n) => n.libs);
+    const vendorMissing = libs.filter((lib) => !s.vendordeps.some(VENDOR_MATCH[lib]));
+    if (vendorMissing.length) {
+      needs.push(...vendorMissing);
+      actions.push({ ...vendorLibs, secondary: actions.length > 0 });
+    }
+    if (!needs.length) return null;
+    const list = needs.length === 1 ? needs[0] : `${needs.slice(0, -1).join(", ")} and ${needs[needs.length - 1]}`;
     return {
-      isWpilib: s.isWpilib,
-      folder: s.name,
-      describe: this.project.describe(),
-      framework: s.framework,
-      label: LIBRARIES[key].label,
-      installed: lib.installed ? `${lib.installed.name} ${lib.installed.version}` : null,
-      wrongFramework: lib.wrongFramework,
-      install: key === "yams" ? "yassTutorials.installYams" : "yassTutorials.installYagsl",
-      next,
-      nextTitle: next ? this.index.pages[next].title : null,
+      state: "todo",
+      title: `${s.name} needs ${list}`,
+      body: vendorMissing.length
+        ? `This tutorial's hardware uses ${vendorMissing.join(" and ")}. Install ${needs.length === 1 ? "it" : "them"} before building the code.`
+        : `Install ${list} before building the code on this page.`,
+      actions,
+      note: vendorMissing.length ? `Find ${vendorMissing.join(" and ")} in WPILib's vendor library list, and click Install.` : "",
     };
   }
 
   refreshSetup() {
-    if (this.panel && this.currentId && SETUP_PAGES[this.currentId]) {
-      this.panel.webview.postMessage({ type: "setup", setup: this.setup(this.currentId) });
+    if (this.panel && this.currentId) {
+      this.panel.webview.postMessage({ type: "setup", setup: this.card(this.currentId) });
     }
   }
 
@@ -634,6 +775,9 @@ class TutorialPanel {
         break;
       case "insert":
         await this.actions.insert(msg.code, msg.lang);
+        break;
+      case "createFile":
+        await createFile(this.project, msg.code, msg.title);
         break;
       case "done":
         this.actions.setDone(msg.id, msg.done);

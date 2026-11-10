@@ -94,8 +94,26 @@
         flash(insert, "Inserted");
       });
       bar.append(label, copy, insert);
+      if (isCompleteFile(title, code())) {
+        const create = document.createElement("button");
+        create.className = "icon create";
+        create.textContent = "Create file";
+        create.title = "Create " + title.split("/").pop() + " in your project with this code";
+        create.addEventListener("click", () => {
+          vscode.postMessage({ type: "createFile", code: code(), title });
+          flash(create, "Created");
+        });
+        bar.append(create);
+      }
       pre.parentElement?.insertBefore(bar, pre);
     });
+  }
+
+  /** A whole file, not a part of one: Java with its package line, C++ starting with an #include or #pragma. */
+  function isCompleteFile(/** @type {string} */ title, /** @type {string} */ code) {
+    if (/\.java$/.test(title)) return /^\s*package\s+[\w.]+\s*;/m.test(code);
+    if (/\.(h|hpp|cpp)$/.test(title)) return /^(src\/main\/)?(include|cpp)\//.test(title) && /^\s*(\/\/.*\n\s*)*#/.test(code);
+    return false;
   }
 
   function flash(/** @type {HTMLElement} */ button, /** @type {string} */ text) {
@@ -144,37 +162,20 @@
       b.addEventListener("click", onClick);
       return b;
     };
-    const run = (/** @type {string} */ command) => () => vscode.postMessage({ type: "command", command });
     const actions = el("div", "setup-actions", "");
-    let state = "todo";
-    let title;
-    let body;
-    if (!setup.isWpilib) {
-      title = "First, a robot project";
-      body = setup.folder
-        ? `${setup.folder} isn't a WPILib robot project. Create one, or open the one you have. WPILib opens it in a new window, and this tutorial opens there too.`
-        : "No robot project is open. Create one, or open the one you have. WPILib opens it in a new window, and this tutorial opens there too.";
-      actions.append(button("Create a robot project", run("yassTutorials.createProject")), button("Open a robot project", run("yassTutorials.openProject"), true));
-    } else if (!setup.installed || setup.wrongFramework) {
-      title = `Install ${setup.label}`;
-      body = setup.wrongFramework
-        ? `${setup.folder} has ${setup.installed}, but it uses ${setup.describe}. Switch it to the Commands v${setup.framework} vendordep.`
-        : `${setup.folder} (${setup.describe}) doesn't have ${setup.label} yet. One click downloads the right vendordep into its vendordeps folder.`;
+    for (const action of setup.actions) {
       actions.append(
-        button(`Install ${setup.label} for Commands v${setup.framework}`, run(setup.install)),
-        button("Open vendor libraries", run("yassTutorials.manageVendorLibs"), true),
+        button(
+          action.label,
+          () => vscode.postMessage(action.open ? { type: "open", id: action.open } : { type: "command", command: action.command }),
+          !!action.secondary,
+        ),
       );
-    } else {
-      state = "ready";
-      title = `${setup.folder} is ready`;
-      body = `It has ${setup.installed}, and the tutorials show ${setup.describe} code. You can skip the rest of this page.`;
-      if (setup.next) actions.append(button(`Next: ${setup.nextTitle} →`, () => vscode.postMessage({ type: "open", id: setup.next })));
     }
-    card.className = `setup setup-${state}`;
-    card.append(el("h2", "", (state === "ready" ? "✓ " : "") + title), el("p", "", body), actions);
-    if (state !== "ready") {
-      card.append(el("p", "muted setup-note", "Your motor controller's library, such as REVLib or Phoenix 6, comes from the vendor libraries list. The page below shows each step by hand."));
-    }
+    card.className = `setup setup-${setup.state}`;
+    card.append(el("h2", "", (setup.state === "ready" ? "✓ " : "") + setup.title), el("p", "", setup.body));
+    if (setup.actions.length) card.append(actions);
+    if (setup.note) card.append(el("p", "muted setup-note", setup.note));
   }
 
   function showImagesThatAreTooBig() {

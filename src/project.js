@@ -152,7 +152,7 @@ class Project {
         `Couldn't download ${LIBRARIES[key].label}: ${e instanceof Error ? e.message : e}. Are you online?`,
         "Open Vendor Libraries",
       );
-      if (choice) vscode.commands.executeCommand("wpilibcore.manageVendorLibs");
+      if (choice) vscode.commands.executeCommand("wpilib.dependencyView.focus");
       return false;
     }
     this.refresh();

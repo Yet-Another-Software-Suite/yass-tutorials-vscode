@@ -236,6 +236,15 @@ button.icon:hover {
   background: var(--vscode-button-secondaryHoverBackground);
 }
 
+button.icon.create {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+button.icon.create:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
 /* Hints */
 .hint {
   margin: 16px 0;
