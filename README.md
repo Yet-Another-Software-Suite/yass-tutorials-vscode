@@ -38,10 +38,22 @@ Mark steps as done to track your progress, and search every tutorial with the ma
 
 ## Install
 
-1. Download [yass-tutorials.vsix](https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/releases/download/latest/yass-tutorials.vsix). CI rebuilds it from the latest YAMS and YAGSL docs on every push and every day.
-2. In WPILib VS Code, open the Extensions view, click the **...** menu, choose **Install from VSIX...** and pick the file.
+Download [yass-tutorials.vsix](https://github.com/Yet-Another-Software-Suite/yass-tutorials-vscode/releases/download/latest/yass-tutorials.vsix). CI rebuilds it from the latest YAMS and YAGSL docs on every push and every day. Then, in WPILib VS Code:
 
-Or from a terminal: `code --install-extension yass-tutorials.vsix`.
+1. Click **Extensions** in the activity bar on the left.
+2. Click **...** at the top of the Extensions view.
+
+![The Extensions icon in the activity bar, and the ... button at the top of the Extensions view, boxed in red](images/install-1.png)
+
+3. Click **Install from VSIX...**, and pick the `yass-tutorials.vsix` you downloaded.
+
+![The ... menu, with Install from VSIX... boxed in red](images/install-2.png)
+
+4. **YASS Tutorials** is now in the list of installed extensions. Click the book icon it adds to the activity bar to open the tutorials.
+
+![YASS Tutorials in the installed extensions, and its book icon in the activity bar, boxed in red](images/install-3.png)
+
+To update, install the new `yass-tutorials.vsix` the same way. From a terminal, `code --install-extension yass-tutorials.vsix` does the same.
 
 ## Build
 
