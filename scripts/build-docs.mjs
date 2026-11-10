@@ -148,6 +148,70 @@ md.renderer.rules.fence = (tokens, i, options) => {
 
 const attr = (tag, name) => tag.match(new RegExp(`${name}="([^"]*)"`))?.[1];
 
+const decodeEntities = (s) =>
+  s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x?27;|&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+
+/** Highlighted code split into lines, each closing the spans it opens and reopening them on the next. */
+function highlightedLines(code, lang) {
+  const html = md.options.highlight(code, lang);
+  const open = [];
+  return html.split("\n").map((line) => {
+    const start = open.join("");
+    for (const tag of line.match(/<span[^>]*>|<\/span>/g) ?? []) {
+      if (tag === "</span>") open.pop();
+      else open.push(tag);
+    }
+    return start + line + "</span>".repeat(open.length);
+  });
+}
+
+/**
+ * GitBook writes code with highlighted lines as raw HTML: <pre class="language-java" data-title=...>
+ * with each new line in <strong>. Turn it into a code block like the Markdown ones, keeping the
+ * highlighted lines.
+ */
+function rawPreToCodeBlock(html) {
+  return html.replace(
+    /<pre class="language-([\w+-]+)"([^>]*)><code[^>]*>([\s\S]*?)<\/code><\/pre>/g,
+    (whole, lang, attrs, inner) => {
+      const title = attr(attrs, "data-title");
+      // Which characters sit inside <strong>, so their lines can be marked as new.
+      let code = "";
+      const strong = [];
+      let inStrong = false;
+      for (const part of inner.split(/(<[^>]+>)/)) {
+        if (part.startsWith("<")) {
+          if (/^<strong\b/.test(part)) inStrong = true;
+          else if (part === "</strong>") inStrong = false;
+          continue;
+        }
+        const text = decodeEntities(part);
+        code += text;
+        for (let i = 0; i < text.length; i++) strong.push(inStrong);
+      }
+      code = code.replace(/\n$/, "");
+      let at = 0;
+      const isNew = code.split("\n").map((line) => {
+        const marked = [...line].some((c, i) => c.trim() && strong[at + i]);
+        at += line.length + 1;
+        return marked;
+      });
+      const language = lang === "c++" ? "cpp" : lang;
+      const lines = highlightedLines(code, language).map((l, i) => (isNew[i] ? `<span class="line-new">${l}</span>` : l));
+      return (
+        `<div class="code-block"${title ? ` data-title="${escapeHtml(decodeEntities(title))}"` : ""}>` +
+        `<pre class="hljs" data-lang="${escapeHtml(language)}"><code>${lines.join("\n")}</code></pre></div>`
+      );
+    },
+  );
+}
+
 /** Turns GitBook's {% %} blocks into HTML that the Markdown keeps rendering inside. */
 function gitbookToHtml(text) {
   const out = [];
@@ -289,7 +353,7 @@ for (const source of SOURCES) {
   order.forEach((page, i) => {
     const text = fs.readFileSync(path.join(source.repo, page.file), "utf8");
     const { meta, body } = frontMatter(text);
-    let html = md.render(gitbookToHtml(body));
+    let html = rawPreToCodeBlock(md.render(gitbookToHtml(body)));
     const dir = path.posix.dirname(page.file);
 
     html = html.replace(/(href|src)="([^"]*)"/g, (whole, kind, raw) => {

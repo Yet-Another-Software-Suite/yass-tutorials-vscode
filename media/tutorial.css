@@ -486,3 +486,11 @@ button.inline-copy {
   margin-left: 6px;
   vertical-align: baseline;
 }
+
+/* Lines a step adds, highlighted the way the docs highlight them. */
+.line-new {
+  display: inline-block;
+  min-width: 100%;
+  background: var(--vscode-diffEditor-insertedLineBackground, rgba(63, 185, 80, 0.15));
+  box-shadow: inset 3px 0 0 var(--vscode-testing-iconPassed, #3fb950);
+}
