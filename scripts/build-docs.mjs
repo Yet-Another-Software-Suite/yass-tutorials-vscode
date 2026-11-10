@@ -363,7 +363,9 @@ for (const source of SOURCES) {
     const i = visible.indexOf(page);
     const text = fs.readFileSync(path.join(source.repo, page.file), "utf8");
     const { meta, body } = frontMatter(text);
-    let html = rawPreToCodeBlock(md.render(gitbookToHtml(body)));
+    let html = rawPreToCodeBlock(md.render(gitbookToHtml(body)))
+      // "In a hurry? Jump to the complete file": the complete file is hidden in the extension.
+      .replace(/<div class="hint[^"]*">\s*<p><strong>In a hurry\?<\/strong>[\s\S]*?<\/div>\n?/g, "");
     const dir = path.posix.dirname(page.file);
 
     html = html.replace(/(href|src)="([^"]*)"/g, (whole, kind, raw) => {
