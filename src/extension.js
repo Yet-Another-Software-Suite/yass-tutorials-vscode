@@ -744,7 +744,9 @@ class TutorialPanel {
     const old = this.panel;
     this.panel = panel;
     if (old && old !== panel) old.dispose();
-    const roots = [vscode.Uri.joinPath(this.context.extensionUri, "media"), this.context.globalStorageUri];
+    // The downloaded docs' folder as a file: path; globalStorageUri itself can have another scheme
+    // (vscode-userdata:), which the images' file: addresses would not match.
+    const roots = [vscode.Uri.joinPath(this.context.extensionUri, "media"), vscode.Uri.file(this.context.globalStorageUri.fsPath)];
     panel.webview.options = { enableScripts: true, localResourceRoots: roots };
     panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "media", "icon.png");
     panel.webview.html = this.shell(panel.webview);
