@@ -87,7 +87,7 @@ const SOURCES = [
     github: "Yet-Another-Software-Suite/YAGSL-gitbook",
     branch: "main",
     site: "https://docs.yagsl.com",
-    groups: ["Tutorial", "How-to Guides"],
+    groups: ["Get started", "Fix a problem", "Tune and extend"],
   },
 ];
 
